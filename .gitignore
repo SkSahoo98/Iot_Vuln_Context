@@ -1,0 +1,79 @@
+# Secrets and local environment
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+credentials.json
+secrets.json
+secrets.h
+**/secrets.h
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Database
+*.db
+*.sqlite3
+pgdata/
+
+# Packet captures and sensitive lab evidence (keep samples only if sanitized)
+*.pcap
+*.pcapng
+*.cap
+*.ovpn
+
+# ML artifacts (keep code; do not commit trained weights unless explicitly approved)
+ml/models/*.pkl
+ml/models/*.joblib
+ml/models/*.json
+!ml/models/.gitkeep
+
+# Firmware / PlatformIO build output
+.pio/
+.vscode/.browse.c_cpp.db*
+compile_commands.json
+firmware/**/.pio/
+
+# Docker / OS
+.docker/
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE
+.idea/
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Jupyter
+.ipynb_checkpoints/
