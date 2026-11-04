@@ -191,7 +191,13 @@ def get_explanation(
 def create_remediation_endpoint(
     request: RemediationWorkflowCreate,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> RemediationWorkflowOut:
+    if settings.read_only_mode:
+        raise HTTPException(
+            status_code=403,
+            detail="Write operations are disabled in production demo mode.",
+        )
     try:
         return create_or_get_remediation(
             db,
@@ -235,7 +241,13 @@ def confirm_remediation_endpoint(
     remediation_id: UUID,
     request: RemediationConfirmRequest,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> RemediationWorkflowOut:
+    if settings.read_only_mode:
+        raise HTTPException(
+            status_code=403,
+            detail="Write operations are disabled in production demo mode.",
+        )
     try:
         return confirm_remediation(db, remediation_id, request)
     except ValueError as exc:

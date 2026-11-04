@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     environment: str = Field(default="development", alias="ENVIRONMENT")
     project_name: str = Field(default="IoT Security Framework", alias="PROJECT_NAME")
+    read_only_mode: bool = Field(default=False, alias="READ_ONLY_MODE")
 
     database_url: str = Field(
         default="postgresql+psycopg://postgres:CHANGE_ME@localhost:5432/iot_security",
