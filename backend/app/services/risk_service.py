@@ -9,9 +9,9 @@ from app.core.config import Settings
 from app.schemas.api import RiskItemOut, RiskSummaryOut
 from app.services.finding_service import list_findings
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 from risk_engine.features.iot_context import build_mqtt_context  # noqa: E402
 from risk_engine.scoring.dynamic_risk import calculate_dynamic_risk  # noqa: E402

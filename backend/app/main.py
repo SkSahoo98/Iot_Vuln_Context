@@ -8,12 +8,10 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Ensure project root is importable for risk_engine/ and scanner/.
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# Ensure backend root is importable for app/, scanner/ and risk_engine/.
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-for path in (BACKEND_ROOT, PROJECT_ROOT):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.api.v1 import router as api_v1_router  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
