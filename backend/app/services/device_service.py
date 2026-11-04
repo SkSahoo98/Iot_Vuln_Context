@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from ipaddress import ip_address
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.schemas.api import DeviceOut, DeviceTelemetryOut
+from scanner.targets import parse_allowed_targets
 
 
 def list_devices(db: Session) -> list[DeviceOut]:
@@ -23,6 +25,11 @@ def list_devices(db: Session) -> list[DeviceOut]:
     settings = get_settings()
     offline_after = max(1, int(settings.device_offline_after_seconds))
     now = datetime.now(UTC)
+
+    try:
+        allowed = parse_allowed_targets(settings.assessment_allowed_targets)
+    except Exception:
+        allowed = frozenset()
 
     rows = db.execute(
         text(
@@ -71,6 +78,15 @@ def list_devices(db: Session) -> list[DeviceOut]:
             )
 
         payload["status"] = _derive_status(timestamp, now, offline_after)
+
+        raw_ip = payload.get("ip_address")
+        is_auth = False
+        if raw_ip:
+            try:
+                is_auth = ip_address(str(raw_ip).strip()) in allowed
+            except ValueError:
+                is_auth = False
+        payload["is_authorized"] = is_auth
 
         devices.append(
             DeviceOut.model_validate(

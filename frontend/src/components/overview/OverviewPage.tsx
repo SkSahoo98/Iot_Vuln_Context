@@ -1,116 +1,66 @@
-import type { ExperimentDetail, Finding, RiskSummary } from "../../api/types";
-import { severityTone } from "../../lib/format";
-import { EmptyState } from "../common/EmptyState";
+import { useCallback } from "react";
+import { fetchAssessment } from "../../api/assessments";
+import type { AssessmentSummary } from "../../api/types";
+import { useAsyncData } from "../../hooks/useAsyncData";
+import { securityHomeState, summarizeIssues } from "../../lib/securityHome";
 import { ErrorState } from "../common/ErrorState";
-import { KpiCard } from "../common/KpiCard";
 import { LoadingState } from "../common/LoadingState";
-import { ExperimentPreview } from "./ExperimentPreview";
-import { SecurityPipeline } from "./SecurityPipeline";
-import { SecuritySummary } from "./SecuritySummary";
-import { TopFindings } from "./TopFindings";
+import {
+  SecurityHomeView,
+  type DeviceContext,
+  type IssuesState,
+} from "./SecurityHomeView";
 
 type Props = {
-  devicesCount: number;
-  onlineCount: number;
-  findings: Finding[] | null;
-  findingsLoading: boolean;
-  findingsError: string | null;
-  onRetryFindings: () => void;
-  risk: RiskSummary | null;
-  riskLoading: boolean;
-  riskError: string | null;
-  onRetryRisk: () => void;
-  experiment: ExperimentDetail | null;
-  onNavigateFindings: () => void;
-  onNavigateRisk: () => void;
-  onOpenFinding: (findingType: string) => void;
+  assessments: AssessmentSummary[] | null;
+  assessmentsError: string | null;
+  onRetryAssessments: () => void;
+  deviceContext: DeviceContext | null;
+  onCheckSecurity: (assessmentId: string | null) => void;
+  onShowDetails: (assessmentId: string) => void;
 };
 
-export function OverviewPage({
-  devicesCount,
-  onlineCount,
-  findings,
-  findingsLoading,
-  findingsError,
-  onRetryFindings,
-  risk,
-  riskLoading,
-  riskError,
-  onRetryRisk,
-  experiment,
-  onNavigateFindings,
-  onNavigateRisk,
-  onOpenFinding,
-}: Props) {
-  const riskTone = severityTone(risk?.highest_level);
+type Actions = Pick<Props, "deviceContext" | "onCheckSecurity" | "onShowDetails">;
+
+function CompleteHome({
+  latest,
+  ...actions
+}: { latest: AssessmentSummary } & Actions) {
+  const loadDetail = useCallback(() => fetchAssessment(latest.id), [latest.id]);
+  const detail = useAsyncData(loadDetail, 0);
+
+  const issues: IssuesState = detail.data
+    ? { status: "ready", summary: summarizeIssues(detail.data) }
+    : detail.error
+      ? { status: "error", message: detail.error, onRetry: detail.reload }
+      : { status: "loading" };
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Total Devices" value={String(devicesCount)} stagger={1} />
-        <KpiCard
-          label="Online Devices"
-          value={String(onlineCount)}
-          tone="ok"
-          stagger={2}
-        />
-        <KpiCard
-          label="Security Findings"
-          value={String(findings?.length ?? 0)}
-          tone="warn"
-          stagger={3}
-        />
-        <KpiCard
-          label="Highest Risk"
-          value={
-            risk?.highest_score != null ? String(risk.highest_score) : "—"
-          }
-          secondary={risk?.highest_level ?? undefined}
-          tone={riskTone}
-          stagger={4}
-        />
-      </div>
-
-      {riskLoading && !risk ? <LoadingState /> : null}
-      {riskError && !risk ? (
-        <ErrorState message={riskError} onRetry={onRetryRisk} />
-      ) : null}
-      {risk ? (
-        <SecuritySummary
-          findingsCount={findings?.length ?? 0}
-          highestLevel={risk.highest_level}
-          highestScore={risk.highest_score}
-        />
-      ) : null}
-
-      <SecurityPipeline />
-
-      {findingsLoading && !findings ? <LoadingState /> : null}
-      {findingsError && !findings ? (
-        <ErrorState message={findingsError} onRetry={onRetryFindings} />
-      ) : null}
-      {findings && findings.length === 0 ? (
-        <EmptyState message="No security findings detected." />
-      ) : null}
-      {findings && findings.length > 0 ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <TopFindings
-            findings={findings}
-            riskItems={risk?.items ?? []}
-            onViewAll={onNavigateFindings}
-            onOpenFinding={onOpenFinding}
-          />
-          <ExperimentPreview
-            experiment={experiment}
-            onViewResearch={onNavigateRisk}
-          />
-        </div>
-      ) : (
-        <ExperimentPreview
-          experiment={experiment}
-          onViewResearch={onNavigateRisk}
-        />
-      )}
-    </div>
+    <SecurityHomeView state={{ kind: "complete", latest }} issues={issues} {...actions} />
   );
+}
+
+export function OverviewPage({
+  assessments,
+  assessmentsError,
+  onRetryAssessments,
+  ...actions
+}: Props) {
+  if (assessmentsError && !assessments) {
+    return (
+      <ErrorState
+        message={`Couldn't load your latest security assessment. ${assessmentsError}`}
+        onRetry={onRetryAssessments}
+      />
+    );
+  }
+  if (!assessments) {
+    return <LoadingState message="Loading your latest security assessment…" />;
+  }
+
+  const state = securityHomeState(assessments);
+  if (state.kind === "complete") {
+    return <CompleteHome key={state.latest.id} latest={state.latest} {...actions} />;
+  }
+  return <SecurityHomeView state={state} issues={null} {...actions} />;
 }

@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -78,6 +78,39 @@ class Settings(BaseSettings):
         default=180,
         alias="OLLAMA_TIMEOUT",
     )
+
+    # Active assessment (authorized lab only). Comma-separated private/loopback
+    # IP literals. Empty = every target is rejected. CIDR ranges are refused.
+    assessment_allowed_targets: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "ASSESSMENT_ALLOWED_TARGETS",
+            "ASSESSMENT_ALLOWED_HOSTS",
+        ),
+    )
+    nmap_path: str = Field(default="nmap", alias="NMAP_PATH")
+    # Explicit, limited TCP port set. 8883 is included for MQTT over TLS.
+    assessment_ports: str = Field(
+        default="21,22,23,25,53,80,110,139,443,445,554,1883,8080,8443,8883",
+        alias="ASSESSMENT_PORTS",
+    )
+    nmap_timeout_seconds: int = Field(default=180, alias="NMAP_TIMEOUT_SECONDS")
+    assessment_probe_timeout_seconds: float = Field(
+        default=5.0,
+        alias="ASSESSMENT_PROBE_TIMEOUT_SECONDS",
+    )
+    # NET-02: more open services than this is reported as excessive attack surface.
+    assessment_max_open_services: int = Field(
+        default=5,
+        alias="ASSESSMENT_MAX_OPEN_SERVICES",
+    )
+    # NET-06: administrative services that should not be exposed on IoT assets.
+    # Telnet (23) and FTP (21) have dedicated checks and are excluded here.
+    assessment_admin_service_ports: str = Field(
+        default="22,139,445",
+        alias="ASSESSMENT_ADMIN_SERVICE_PORTS",
+    )
+    mqtt_tls_port: int = Field(default=8883, alias="MQTT_TLS_PORT")
 
 
 @lru_cache

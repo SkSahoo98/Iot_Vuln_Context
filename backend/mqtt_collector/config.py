@@ -15,9 +15,23 @@ from dotenv import load_dotenv
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_ROOT.parent
 
-# Load project-root .env first, then backend/.env (backend overrides if both exist).
-load_dotenv(PROJECT_ROOT / ".env")
-load_dotenv(BACKEND_ROOT / ".env")
+def load_environment_files() -> None:
+    """Load collector configuration with deterministic precedence.
+
+    Highest to lowest precedence:
+    1. Variables already present in the process environment
+    2. backend/.env (the collector's intended configuration file)
+    3. project-root .env (backward-compatible fallback for missing keys)
+
+    python-dotenv does not override existing variables by default. Loading the
+    backend file first therefore gives it precedence over the project-root
+    fallback while still allowing explicit shell/service environment values.
+    """
+    load_dotenv(BACKEND_ROOT / ".env", override=False)
+    load_dotenv(PROJECT_ROOT / ".env", override=False)
+
+
+load_environment_files()
 
 
 def _optional_int(name: str, default: int) -> int:
@@ -117,7 +131,7 @@ class Settings:
         )
 
 
-def load_settings() -> Settings:
+def load_settings(require_mqtt_auth: bool = False) -> Settings:
     """Build settings from environment variables."""
     pg = _resolve_postgres()
     min_size = _optional_int("DB_POOL_MIN_SIZE", 1)
@@ -126,6 +140,15 @@ def load_settings() -> Settings:
         raise RuntimeError(
             "Invalid pool size: require DB_POOL_MIN_SIZE >= 1 and "
             "DB_POOL_MAX_SIZE >= DB_POOL_MIN_SIZE"
+        )
+
+    mqtt_username = (os.getenv("MQTT_USERNAME") or "").strip() or None
+    mqtt_password = (os.getenv("MQTT_PASSWORD") or "").strip() or None
+
+    if require_mqtt_auth and (not mqtt_username or not mqtt_password):
+        raise RuntimeError(
+            "MQTT authentication credentials missing. Set MQTT_USERNAME and MQTT_PASSWORD "
+            "in your .env file or environment (anonymous access is not permitted)."
         )
 
     return Settings(
@@ -141,8 +164,8 @@ def load_settings() -> Settings:
             "MQTT_CLIENT_ID",
             "iot-security-mqtt-collector",
         ).strip(),
-        mqtt_username=(os.getenv("MQTT_USERNAME") or "").strip() or None,
-        mqtt_password=(os.getenv("MQTT_PASSWORD") or "").strip() or None,
+        mqtt_username=mqtt_username,
+        mqtt_password=mqtt_password,
         db_pool_min_size=min_size,
         db_pool_max_size=max_size,
     )

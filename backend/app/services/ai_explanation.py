@@ -94,11 +94,59 @@ REQUIRED_STRING_FIELDS = (
     "attack_scenario",
 )
 
+CVE_PATTERN = re.compile(r"\bcve-\d{4}-\d+\b", re.IGNORECASE)
+
+# Language that claims an attack already succeeded or overclaims capability.
+BANNED_CLAIM_PHRASES = (
+    "successfully intercepted",
+    "successfully exploited",
+    "successfully manipulated",
+    "attacker successfully",
+    "we intercepted",
+    "attack was performed",
+    "compromised the device",
+    "controlled the device",
+    "device control was demonstrated",
+    "manipulated sensor data",
+    "arbitrary clients can publish",
+    "can publish to any topic",
+    "can subscribe to any topic",
+)
+
+
+class ExplanationCache:
+    """In-memory TTL cache shared by the AI explanation features."""
+
+    def __init__(self) -> None:
+        self._entries: dict[str, tuple[float, Any, str]] = {}
+
+    def get(self, key: str) -> Any | None:
+        entry = self._entries.get(key)
+        if entry is None:
+            return None
+        expires_at, payload, _source = entry
+        if time.monotonic() >= expires_at:
+            self._entries.pop(key, None)
+            return None
+        return payload
+
+    def store(self, key: str, payload: Any, source: str, ttl_sec: float) -> None:
+        self._entries[key] = (time.monotonic() + ttl_sec, payload, source)
+
+    def pop(self, key: str) -> None:
+        self._entries.pop(key, None)
+
+    def clear(self) -> None:
+        self._entries.clear()
+
+
 # Avoid Ollama stampedes when the dashboard polls the explanation endpoint.
-_CACHE_TTL_SUCCESS_SEC = 600.0
-_CACHE_TTL_FALLBACK_SEC = 45.0
+CACHE_TTL_SUCCESS_SEC = 600.0
+CACHE_TTL_FALLBACK_SEC = 45.0
+_CACHE_TTL_SUCCESS_SEC = CACHE_TTL_SUCCESS_SEC
+_CACHE_TTL_FALLBACK_SEC = CACHE_TTL_FALLBACK_SEC
 _cache_lock = threading.Lock()
-_explanation_cache: dict[str, tuple[float, AIExplanationOut, str]] = {}
+_explanation_cache = ExplanationCache()
 
 
 def explain_finding(
@@ -115,7 +163,7 @@ def explain_finding(
 
     if force_refresh:
         with _cache_lock:
-            _explanation_cache.pop(cache_key, None)
+            _explanation_cache.pop(cache_key)
     else:
         cached = _get_cached(cache_key)
         if cached is not None:
@@ -189,14 +237,7 @@ def _cache_key(finding: FindingOut, risk: RiskItemOut | None) -> str:
 
 
 def _get_cached(cache_key: str) -> AIExplanationOut | None:
-    entry = _explanation_cache.get(cache_key)
-    if entry is None:
-        return None
-    expires_at, payload, _source = entry
-    if time.monotonic() >= expires_at:
-        _explanation_cache.pop(cache_key, None)
-        return None
-    return payload
+    return _explanation_cache.get(cache_key)
 
 
 def _store_cache(
@@ -205,11 +246,7 @@ def _store_cache(
     source: str,
     ttl_sec: float,
 ) -> None:
-    _explanation_cache[cache_key] = (
-        time.monotonic() + ttl_sec,
-        payload,
-        source,
-    )
+    _explanation_cache.store(cache_key, payload, source, ttl_sec)
 
 
 def _rule_based_explain_finding(
@@ -365,6 +402,26 @@ def _request_ollama_explanation(
     finding: FindingOut,
     risk: RiskItemOut | None,
 ) -> dict[str, Any]:
+    return ollama_chat_json(
+        SYSTEM_PROMPT,
+        _build_user_prompt(finding, risk),
+        temperature=0.2,
+        num_predict=700,
+    )
+
+
+def ollama_chat_json(
+    system_prompt: str,
+    user_content: str,
+    *,
+    temperature: float,
+    num_predict: int,
+) -> dict[str, Any]:
+    """
+    One text-only chat call to the configured Ollama model, returning the
+    parsed JSON object. No tools are offered to the model. Raises on HTTP
+    errors, timeouts and malformed output.
+    """
     settings = get_settings()
     url = f"{settings.ollama_base_url.rstrip('/')}/api/chat"
     body = {
@@ -373,12 +430,12 @@ def _request_ollama_explanation(
         "format": "json",
         "think": False,
         "options": {
-            "temperature": 0.2,
-            "num_predict": 700,
+            "temperature": temperature,
+            "num_predict": num_predict,
         },
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _build_user_prompt(finding, risk)},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
         ],
     }
 
@@ -443,27 +500,11 @@ def _validate_llm_payload(
     ).lower()
 
     # Reject invented CVE identifiers.
-    if re.search(r"\bcve-\d{4}-\d+\b", joined):
+    if CVE_PATTERN.search(joined):
         logger.warning("AI response invented a CVE identifier; rejecting")
         return None
 
-    # Reject language that claims an attack already succeeded or overclaims capability.
-    banned_phrases = (
-        "successfully intercepted",
-        "successfully exploited",
-        "successfully manipulated",
-        "attacker successfully",
-        "we intercepted",
-        "attack was performed",
-        "compromised the device",
-        "controlled the device",
-        "device control was demonstrated",
-        "manipulated sensor data",
-        "arbitrary clients can publish",
-        "can publish to any topic",
-        "can subscribe to any topic",
-    )
-    if any(phrase in joined for phrase in banned_phrases):
+    if any(phrase in joined for phrase in BANNED_CLAIM_PHRASES):
         logger.warning("AI response claimed completed attack or overclaimed capability; rejecting")
         return None
 

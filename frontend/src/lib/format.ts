@@ -76,6 +76,32 @@ export function formatGeneratedAt(value: string | null | undefined): string | nu
   });
 }
 
+const RELATIVE_STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["minute", 60],
+  ["hour", 24],
+  ["day", 30],
+];
+
+/** "12 minutes ago" for recent timestamps, otherwise the absolute date. */
+export function formatRelativeTime(
+  value: string | null | undefined,
+  now: number = Date.now(),
+): string | null {
+  if (!value) return null;
+  const time = Date.parse(value);
+  if (Number.isNaN(time)) return null;
+  const seconds = Math.round((time - now) / 1000);
+  if (seconds > 60) return formatGeneratedAt(value);
+  if (seconds > -60) return "just now";
+  const format = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  let amount = seconds / 60;
+  for (const [unit, limit] of RELATIVE_STEPS) {
+    if (Math.abs(amount) < limit) return format.format(Math.round(amount), unit);
+    amount /= limit;
+  }
+  return formatGeneratedAt(value);
+}
+
 export function formatConfidence(value: number): string {
   return `${(value * 100).toFixed(0)}%`;
 }

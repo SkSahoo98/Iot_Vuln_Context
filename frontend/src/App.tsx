@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { fetchAssessments } from "./api/assessments";
 import {
   fetchDevices,
   fetchExperiment,
@@ -9,17 +10,41 @@ import {
   fetchRisk,
 } from "./api/security";
 import type { Device, ExperimentDetail, Explanation } from "./api/types";
+import { AssessmentsPage } from "./components/assessments/AssessmentsPage";
 import { AIAnalysisPage } from "./components/ai/AIAnalysisPage";
 import { DeviceDetailsDrawer } from "./components/devices/DeviceDetailsDrawer";
 import { DevicesPage } from "./components/devices/DevicesPage";
 import { FindingDetailsDrawer } from "./components/findings/FindingDetailsDrawer";
 import { FindingsPage } from "./components/findings/FindingsPage";
+import { AssistantPage } from "./components/assistant/AssistantPage";
 import { AppShell } from "./components/layout/AppShell";
 import { SystemStatusModal } from "./components/layout/SystemStatusModal";
-import { OverviewPage } from "./components/overview/OverviewPage";
+import { MorePage } from "./components/more/MorePage";
 import { RiskResearchPage } from "./components/risk/RiskResearchPage";
+import { SecurityPage } from "./components/security/SecurityPage";
+import { useAnchorScroll } from "./hooks/useAnchorScroll";
 import { useAsyncData } from "./hooks/useAsyncData";
-import type { AppSection } from "./lib/navigation";
+import {
+  MAX_CONVERSATION_MESSAGES,
+  type AssistantMessage,
+} from "./lib/assistant/conversation";
+import {
+  INITIAL_WORKFLOW_STATE,
+  type AssistantWorkflowState,
+} from "./lib/assistant/workflow";
+import {
+  DEFAULT_SECTION,
+  sectionFromHash,
+  type AppSection,
+  type NavAnchor,
+  type NavRequest,
+} from "./lib/navigation";
+
+function initialSection(): AppSection {
+  return typeof window === "undefined"
+    ? DEFAULT_SECTION
+    : sectionFromHash(window.location.hash);
+}
 
 export default function App() {
   const loadDevices = useCallback(() => fetchDevices(), []);
@@ -27,14 +52,22 @@ export default function App() {
   const loadRisk = useCallback(() => fetchRisk(), []);
   const loadExperiments = useCallback(() => fetchExperiments(), []);
   const loadHealth = useCallback(() => fetchHealth(), []);
+  const loadAssessments = useCallback(() => fetchAssessments(), []);
 
   const devices = useAsyncData(loadDevices, 15000);
   const findings = useAsyncData(loadFindings, 15000);
   const risk = useAsyncData(loadRisk, 15000);
   const experiments = useAsyncData(loadExperiments, 30000);
   const health = useAsyncData(loadHealth, 15000);
+  const assessments = useAsyncData(loadAssessments, 0);
 
-  const [section, setSection] = useState<AppSection>("overview");
+  const [nav, setNav] = useState<{ request: NavRequest; key: number }>(() => ({
+    request: { section: initialSection() },
+    key: 0,
+  }));
+  const section = nav.request.section;
+  const [anchor, setAnchor] = useState<NavAnchor | null>(null);
+  useAnchorScroll(anchor);
   const [statusOpen, setStatusOpen] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [deviceDrawerOpen, setDeviceDrawerOpen] = useState(false);
@@ -42,6 +75,66 @@ export default function App() {
     null,
   );
   const [findingDrawerOpen, setFindingDrawerOpen] = useState(false);
+  const [selectedAssessmentId, setSelectedAssessmentId] = useState<
+    string | null
+  >(null);
+
+  const navigate = useCallback((request: NavRequest) => {
+    if (request.assessmentId) setSelectedAssessmentId(request.assessmentId);
+    setNav((previous) => ({ request, key: previous.key + 1 }));
+    setAnchor(request.anchor ? { ...request.anchor } : null);
+  }, []);
+  const goTo = useCallback(
+    (target: AppSection) => navigate({ section: target }),
+    [navigate],
+  );
+  const scrollTo = useCallback((target: NavAnchor) => setAnchor({ ...target }), []);
+
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([]);
+  const addAssistantMessage = useCallback((message: AssistantMessage) => {
+    setAssistantMessages((previous) =>
+      [...previous, message].slice(-MAX_CONVERSATION_MESSAGES),
+    );
+  }, []);
+  const [assistantWorkflow, setAssistantWorkflow] =
+    useState<AssistantWorkflowState>(INITIAL_WORKFLOW_STATE);
+  const assistantWorkflowRef = useRef(assistantWorkflow);
+  const getAssistantWorkflow = useCallback(() => assistantWorkflowRef.current, []);
+  const updateAssistantWorkflow = useCallback(
+    (patch: Partial<AssistantWorkflowState>) => {
+      assistantWorkflowRef.current = { ...assistantWorkflowRef.current, ...patch };
+      setAssistantWorkflow(assistantWorkflowRef.current);
+    },
+    [],
+  );
+
+  const sectionRef = useRef(section);
+  sectionRef.current = section;
+
+  useEffect(() => {
+    if (!anchor) window.scrollTo({ top: 0 });
+  }, [nav.key]);
+
+  useEffect(() => {
+    const hash = `#${section}`;
+    if (window.location.hash === hash) return;
+    if (!window.location.hash) {
+      window.history.replaceState(null, "", hash);
+    } else {
+      window.location.hash = section;
+    }
+  }, [section]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const next = sectionFromHash(window.location.hash);
+      if (next === sectionRef.current) return;
+      setNav((previous) => ({ request: { section: next }, key: previous.key + 1 }));
+      setAnchor(null);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   const [explanationCache, setExplanationCache] = useState<
     Record<string, Explanation>
@@ -174,17 +267,15 @@ export default function App() {
         ? false
         : null;
 
-  const openFindingDetails = (findingType: string) => {
-    setSelectedFindingType(findingType);
-    setFindingDrawerOpen(true);
-    setSection("findings");
-  };
-
   const navigateToAi = (findingType?: string) => {
     if (findingType) setSelectedFindingType(findingType);
     setFindingDrawerOpen(false);
-    setSection("ai");
+    goTo("ai");
   };
+
+  const deviceContext = devices.data
+    ? { total: devices.data.length, online: onlineCount }
+    : null;
 
   const refreshAll = () => {
     devices.reload();
@@ -192,6 +283,7 @@ export default function App() {
     risk.reload();
     experiments.reload();
     health.reload();
+    assessments.reload();
   };
 
   return (
@@ -199,27 +291,41 @@ export default function App() {
       <AppShell
         section={section}
         apiOnline={apiOnline}
-        onNavigate={setSection}
+        onNavigate={goTo}
         onOpenStatus={() => setStatusOpen(true)}
         onRefresh={refreshAll}
       >
-        {section === "overview" ? (
-          <OverviewPage
-            devicesCount={devices.data?.length ?? 0}
-            onlineCount={onlineCount}
-            findings={findings.data}
-            findingsLoading={findings.loading}
-            findingsError={findings.error}
-            onRetryFindings={findings.reload}
-            risk={risk.data}
-            riskLoading={risk.loading}
-            riskError={risk.error}
-            onRetryRisk={risk.reload}
-            experiment={experimentDetail}
-            onNavigateFindings={() => setSection("findings")}
-            onNavigateRisk={() => setSection("risk")}
-            onOpenFinding={openFindingDetails}
+        {section === "assistant" ? (
+          <AssistantPage
+            assessments={assessments.data}
+            assessmentsError={assessments.error}
+            onRetryAssessments={assessments.reload}
+            onNavigate={navigate}
+            messages={assistantMessages}
+            onMessage={addAssistantMessage}
+            workflow={assistantWorkflow}
+            getWorkflow={getAssistantWorkflow}
+            onWorkflowChange={updateAssistantWorkflow}
+            onAssessmentCreated={assessments.reload}
           />
+        ) : null}
+
+        {section === "security" ? (
+          <SecurityPage
+            key={nav.key}
+            assessments={assessments.data}
+            assessmentsError={assessments.error}
+            onRetryAssessments={assessments.reload}
+            deviceContext={deviceContext}
+            initialTechnicalOpen={nav.request.securityTechnical}
+            onNavigate={navigate}
+            onScrollTo={scrollTo}
+            onReassessmentCreated={() => assessments.reload()}
+          />
+        ) : null}
+
+        {section === "more" ? (
+          <MorePage onNavigate={goTo} onOpenStatus={() => setStatusOpen(true)} />
         ) : null}
 
         {section === "devices" ? (
@@ -233,6 +339,21 @@ export default function App() {
               setSelectedDevice(device);
               setDeviceDrawerOpen(true);
             }}
+          />
+        ) : null}
+
+        {section === "history" ? (
+          <AssessmentsPage
+            key={nav.key}
+            assessments={assessments.data}
+            loading={assessments.loading}
+            error={assessments.error}
+            selectedAssessmentId={selectedAssessmentId}
+            onSelectAssessment={setSelectedAssessmentId}
+            onRefresh={assessments.reload}
+            initialComparison={nav.request.comparison}
+            onScrollTo={scrollTo}
+            onOpenResearch={() => navigate({ section: "risk" })}
           />
         ) : null}
 

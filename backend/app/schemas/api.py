@@ -27,6 +27,7 @@ class DeviceOut(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     latest_telemetry: DeviceTelemetryOut | None = None
+    is_authorized: bool = False
 
 
 class FindingOut(BaseModel):

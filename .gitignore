@@ -28,6 +28,7 @@ ENV/
 htmlcov/
 dist/
 build/
+*.zip
 
 # Node / frontend
 node_modules/

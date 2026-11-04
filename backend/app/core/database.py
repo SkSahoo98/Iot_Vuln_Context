@@ -12,7 +12,10 @@ settings = get_settings()
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
-    echo=settings.environment == "development",
+    pool_size=30,
+    max_overflow=50,
+    pool_timeout=60,
+    echo=False,
 )
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)

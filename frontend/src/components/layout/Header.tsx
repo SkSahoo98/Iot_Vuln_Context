@@ -1,15 +1,17 @@
-import type { AppSection } from "../../lib/navigation";
-import { SECTION_META } from "../../lib/navigation";
+import type { AppSection, PrimarySection } from "../../lib/navigation";
+import { TopNav } from "./PrimaryNav";
 
 type Props = {
   section: AppSection;
   apiOnline: boolean | null;
+  onNavigate: (section: PrimarySection) => void;
   onOpenStatus: () => void;
   onRefresh: () => void;
+  /** Matches the wider Assistant workspace. */
+  wide?: boolean;
 };
 
-export function Header({ section, apiOnline, onOpenStatus, onRefresh }: Props) {
-  const meta = SECTION_META[section];
+export function Header({ section, apiOnline, onNavigate, onOpenStatus, onRefresh, wide = false }: Props) {
   const statusLabel =
     apiOnline === null
       ? "Checking…"
@@ -24,55 +26,39 @@ export function Header({ section, apiOnline, onOpenStatus, onRefresh }: Props) {
         : "bg-[var(--danger)]";
 
   return (
-    <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[var(--bg)]/55 backdrop-blur-2xl">
-      <div className="mx-auto flex max-w-6xl items-start justify-between gap-4 px-4 py-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-3">
-            <span
-              className="brand-mark flex h-10 w-10 items-center justify-center text-[11px] font-bold tracking-wide text-[var(--accent)]"
-              aria-hidden
-            >
-              IoT
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-[11px] tracking-[0.16em] text-[var(--muted)] uppercase">
-                IoT Security Framework
-              </p>
-              <h1
-                key={section}
-                className="font-display truncate text-lg font-semibold sm:text-xl animate-title-swap"
-              >
-                {meta.title}
-              </h1>
-            </div>
-          </div>
-          <p
-            key={`${section}-sub`}
-            className="mt-1.5 max-w-xl text-sm text-[var(--muted)] animate-title-swap"
+    <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[var(--bg)]/70 backdrop-blur-2xl">
+      <div className={`mx-auto flex ${wide ? "max-w-7xl" : "max-w-6xl"} items-center gap-3 px-4 py-2.5`}>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span
+            className="brand-mark flex h-9 w-9 shrink-0 items-center justify-center text-[11px] font-bold tracking-wide text-[var(--accent)]"
+            aria-hidden
           >
-            {meta.subtitle}
-          </p>
+            IoT
+          </span>
+          <span className="hidden truncate text-sm font-semibold tracking-tight text-[var(--text)] min-[400px]:inline">
+            IoT Security
+          </span>
+        </div>
+
+        <div className="min-w-0 flex-1 md:flex md:justify-center">
+          <TopNav section={section} onNavigate={onNavigate} />
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={onOpenStatus}
-            className="btn-soft glass-chip inline-flex items-center gap-2 px-3.5 py-2 text-xs"
+            className="btn-soft glass-chip inline-flex min-h-11 items-center gap-2 px-3.5 text-xs"
             aria-label="Open system status"
           >
-            <span
-              className={`h-2 w-2 rounded-full ${statusTone} ${
-                apiOnline ? "status-pulse" : ""
-              }`}
-            />
-            <span className="hidden sm:inline">{statusLabel}</span>
-            <span className="sm:hidden">Status</span>
+            <span className={`h-2 w-2 rounded-full ${statusTone}`} />
+            <span className="hidden lg:inline">{statusLabel}</span>
+            <span className="lg:hidden">Status</span>
           </button>
           <button
             type="button"
             onClick={onRefresh}
-            className="btn-soft glass-chip px-3.5 py-2 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+            className="btn-soft glass-chip inline-flex min-h-11 items-center px-3.5 text-xs text-[var(--muted)] hover:text-[var(--text)]"
             aria-label="Refresh data"
           >
             Refresh

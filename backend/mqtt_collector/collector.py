@@ -136,10 +136,23 @@ class MqttPostgresCollector:
         logger.info("PostgreSQL pool ready")
 
     def _setup_mqtt_client(self) -> None:
+        if not self.settings.mqtt_username or not self.settings.mqtt_password:
+            error_msg = (
+                "MQTT authentication credentials missing. Set MQTT_USERNAME and MQTT_PASSWORD "
+                "in your environment or .env file (anonymous MQTT access is not permitted)."
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
         self._client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id=self.settings.mqtt_client_id,
             protocol=mqtt.MQTTv311,
+        )
+        # Configure authentication before connecting
+        self._client.username_pw_set(
+            username=self.settings.mqtt_username,
+            password=self.settings.mqtt_password,
         )
         # Automatic reconnect after a previously successful connection.
         self._client.reconnect_delay_set(min_delay=1, max_delay=60)
@@ -148,21 +161,16 @@ class MqttPostgresCollector:
         self._client.on_subscribe = self._on_subscribe
         self._client.on_message = self._on_message
 
-        if self.settings.mqtt_username:
-            self._client.username_pw_set(
-                self.settings.mqtt_username,
-                self.settings.mqtt_password,
-            )
-
     def _connect_mqtt_with_timeout(self) -> None:
         """Fail startup clearly if the broker does not accept the first connection."""
         assert self._client is not None
         self._connected_event.clear()
 
         logger.info(
-            "Connecting to MQTT broker %s:%s",
+            "Connecting to MQTT broker %s:%s (user=%s)",
             self.settings.mqtt_broker_host,
             self.settings.mqtt_broker_port,
+            self.settings.mqtt_username,
         )
         logger.info("Attempting MQTT connection ...")
 
@@ -200,13 +208,26 @@ class MqttPostgresCollector:
     ) -> None:
         rc_value = getattr(reason_code, "value", reason_code)
         if rc_value != 0:
-            logger.error("Failed MQTT connection (reason=%s)", reason_code)
+            is_auth_failure = (
+                rc_value in (4, 5, 134, 135)
+                or "bad user name" in str(reason_code).lower()
+                or "not authorized" in str(reason_code).lower()
+            )
+            if is_auth_failure:
+                logger.error(
+                    "MQTT authentication failed (username=%s, reason=%s). "
+                    "Check broker passwords.txt and credentials in .env.",
+                    self.settings.mqtt_username,
+                    reason_code,
+                )
+            else:
+                logger.error("Failed MQTT connection (reason=%s)", reason_code)
             return
 
         if self._ever_connected:
             logger.info("MQTT reconnected successfully")
         else:
-            logger.info("MQTT connected")
+            logger.info("MQTT connected (authenticated as user=%s)", self.settings.mqtt_username)
 
         self._ever_connected = True
         self._connected_event.set()
@@ -452,7 +473,7 @@ def main() -> int:
     logger.info("Starting MQTT → PostgreSQL collector")
 
     try:
-        settings = load_settings()
+        settings = load_settings(require_mqtt_auth=True)
     except RuntimeError as exc:
         logger.error("%s", exc)
         return 1

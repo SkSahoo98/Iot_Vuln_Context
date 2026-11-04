@@ -18,6 +18,8 @@
   --ok: #34d399;
   --info: #60a5fa;
   --dock-h: 4.75rem;
+  /* Header, page title and spacing above/below the desktop Assistant workspace. */
+  --assistant-offset: 11.75rem;
   --shadow-panel: 0 10px 30px rgba(0, 0, 0, 0.28);
   --shadow-dock: 0 18px 50px rgba(0, 0, 0, 0.45);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);

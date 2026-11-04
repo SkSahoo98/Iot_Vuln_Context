@@ -1,0 +1,1066 @@
+==============================================================================
+ AI-ASSISTED IoT VULNERABILITY ASSESSMENT & IoT-SPECIFIC DYNAMIC RISK SCORING
+ FRAMEWORK -- PROJECT AUDIT AND GAP ANALYSIS
+==============================================================================
+
+Audit date      : 12 Oct 2026
+Repository      : IOT_Security_Framework (GitHub: SkSahoo98/Iot_Vuln_Context)
+Audit type      : Read-only audit and planning (no project code was changed)
+Target product  : "AI-Assisted IoT Security Advisor" -- a conversational
+                  assistant that orchestrates Discovery -> Evidence ->
+                  Vulnerability -> IoT Context -> Dynamic Risk -> AI Analyst ->
+                  Guidance -> Remediation -> Re-assessment, while deterministic
+                  engines remain authoritative.
+
+------------------------------------------------------------------------------
+ 0. HOW THIS AUDIT WAS PERFORMED
+------------------------------------------------------------------------------
+
+- Every relevant source file was inspected (firmware, collector, backend API
+  and services, scanner, risk engine, AI service, database SQL, ORM models,
+  Alembic migration, seed script, tests, frontend, docs).
+- The live PostgreSQL database was queried read-only (table list, row counts,
+  latest telemetry, invalid 0/0 rows, stored status).
+- The risk engine was executed in memory to reproduce all scenario scores.
+- A temporary API instance was started, every endpoint was called (including
+  one live Ollama explanation), and the instance was then stopped.
+- Environment checks at audit time:
+    * Backend API (127.0.0.1:8000)   : DOWN (only started temporarily)
+    * Ollama (127.0.0.1:11434)       : UP, model qwen3:8b (8.2B, Q4_K_M,
+                                       capabilities: completion, tools,
+                                       thinking; context 40960)
+    * MQTT broker 10.84.237.85:1883  : NOT REACHABLE
+    * nmap / tshark on Windows PATH  : NOT INSTALLED
+- pytest was NOT executed, because test_database.py attempts a DB write.
+- git status after the audit showed only the pre-existing untracked
+  backend.zip, i.e. no project files were modified.
+
+Security principles applied throughout:
+ 1. Never fabricate vulnerabilities.        7. AI must not replace detection.
+ 2. Never fabricate CVEs.                   8. AI must not replace the risk
+ 3. A closed port is never "vulnerable".       engine.
+ 4. Nmap discovery alone is not proof of     9. Attack scenarios are "potential"
+    missing TLS or authentication.             unless an authorized experiment
+ 5. MQTT findings need real evidence.          was performed.
+ 6. AI must not invent evidence.           10. No Internet-exposure claims
+                                               unless demonstrated.
+                                           11. Authorized private lab only.
+
+------------------------------------------------------------------------------
+ 1. EXECUTIVE SUMMARY
+------------------------------------------------------------------------------
+
+Software / prototype completion : ~38%
+Research completion             : ~15%
+Overall (equal-weight average)  : ~27%
+
+The data pipeline, risk formula, AI explanation layer and dashboard are real
+and working: ESP32 -> MQTT -> PostgreSQL, a read API, an explainable
+context-weighted risk formula, a carefully guarded local-LLM explanation
+layer, and a polished dashboard.
+
+The core security claim is NOT yet backed by observation. The two MQTT
+findings are produced from two settings in backend/.env
+(MQTT_TLS_ENABLED=false, MQTT_ANONYMOUS_ALLOWED=true), not from any scan or
+probe. Verified during the audit: with the broker unreachable, the API still
+reported both HIGH findings at score 67.5.
+
+Fixing the evidence gap first (observed evidence -> findings -> stored runs)
+unlocks almost every other part of the roadmap.
+
+------------------------------------------------------------------------------
+ A. REPOSITORY STRUCTURE
+------------------------------------------------------------------------------
+
+IOT_Security_Framework/
+|-- backend/
+|   |-- app/
+|   |   |-- api/v1.py              9 GET endpoints (all respond)
+|   |   |-- core/config.py         env settings (MQTT flags, risk context,
+|   |   |                          Ollama, offline threshold)
+|   |   |-- models/                24-table SQLAlchemy models; most of these
+|   |   |                          tables do NOT exist in the live database
+|   |   |-- schemas/api.py         response models matching the live 4-table DB
+|   |   |-- services/              device, finding, risk, experiment,
+|   |                              ai_explanation
+|   |-- mqtt_collector/            MQTT -> PostgreSQL collector (working)
+|   |-- alembic/                   migration for the 24-table design
+|   |                              (revision b7c4e2a91d30, never applied)
+|   |-- scripts/                   seed_data.py (SYNTHETIC data),
+|   |                              record_context_experiment.py
+|   |-- tests/test_database.py     targets the unapplied 24-table design
+|-- database/schema.sql,
+|   database/experiment_schema.sql <- the schema actually in use
+|-- firmware/esp32_device_01, esp32_device_02   DHT22 + MQTT sketches
+|-- firmware/esp32_device_03      EMPTY
+|-- scanner/mqtt_checks/mqtt_analyzer.py        the ONLY scanner module
+|-- scanner/{discovery, fingerprinting, tls_checks, service_checks,
+|            orchestrator}/        EMPTY placeholders
+|-- risk_engine/{features, rules, scoring}/     IoT-RISK-v1 (working)
+|-- risk_engine/tests/            print scripts, no assertions
+|-- frontend/src/                 React 19 + Vite 6 + Tailwind 4 + Recharts
+|-- ml/, raspberry_pi/, experiments/, reports/, data/, configs/, deployment/
+|                                 EMPTY placeholders
+|-- docs/                         planning docs; status/experiment logs stale
+|-- backend.zip                   untracked archive in repo root
+
+No evidence artifacts exist anywhere in the repository: no .pcap captures,
+no Nmap XML output, no Mosquitto configuration files.
+
+------------------------------------------------------------------------------
+ B. FIRMWARE AND IoT TESTBED
+------------------------------------------------------------------------------
+
+Item                         Status            Evidence / notes
+---------------------------  ----------------  ------------------------------
+Both ESP32 projects present  IMPLEMENTED       esp32_device_01.ino,
+                                               esp32_device_02.ino;
+                                               esp32_device_03 is empty
+DHT22 code                   IMPLEMENTED       Adafruit DHT library, pin 4
+MQTT publishing              IMPLEMENTED       PubSubClient, every 5 s,
+                                               topic iot/esp32/0X/sensor
+device_id configurable       PARTIAL           Compile-time #define; two
+                                               duplicated sketches
+Device IP captured           IMPLEMENTED       WiFi.localIP() in payload
+                                               (device-reported, not
+                                               network-verified)
+Telemetry validation         IMPLEMENTED       Firmware skips NaN reads;
+                                               collector checks numeric values
+                                               and humidity 0-100
+Invalid 0/0 rejected         IMPLEMENTED       Collector rejects 0/0.
+                             (collector)       Firmware skip was added, but it
+                             UNKNOWN           cannot be confirmed that it was
+                             (firmware)        flashed. 364 historical 0/0
+                                               rows remain in sensor_data and
+                                               are filtered at query time.
+Online/offline detection     IMPLEMENTED       API derives status from 30 s
+                                               freshness
+                                               (DEVICE_OFFLINE_AFTER_SECONDS).
+                                               Stored devices.status column is
+                                               stale (says ONLINE; API returns
+                                               OFFLINE correctly).
+Stale telemetry handled      IMPLEMENTED       Last valid reading shown as
+                                               "Last recorded"
+Firmware version             PARTIAL           "1.0.0" seeded in DB, not
+                                               reported by the device
+Secrets separated            IMPLEMENTED       secrets.h gitignored;
+                                               secrets.h.example committed
+Hardcoded IPs                PARTIAL           Broker IP 10.84.237.85 in
+                                               secrets.h.example and README;
+                                               no device IPs hardcoded
+Hardcoded credentials        NONE COMMITTED    Empty MQTT credentials =
+                                               anonymous by design
+MQTT over TLS in firmware    MISSING           Plain WiFiClient; TLS
+                                               remediation not yet possible
+
+Testbed runtime: last telemetry was 19 Sep 2026 (ESP32-01 14:45,
+ESP32-02 14:44). The testbed has not run since, and the broker is currently
+unreachable.
+
+------------------------------------------------------------------------------
+ C. MQTT AND COLLECTOR
+------------------------------------------------------------------------------
+
+- Mosquitto configuration : MISSING from the repo. Neither the insecure nor a
+                            secure broker setup can be reproduced.
+- Collector               : IMPLEMENTED (paho-mqtt v2). Subscribes to
+                            iot/esp32/+/sensor, validates JSON, device_id,
+                            numeric values, humidity range and 0/0, rejects
+                            unknown devices, inserts into sensor_data,
+                            updates device IP, reconnects automatically,
+                            logs errors.
+- Authentication          : Optional username/password supported in both
+                            collector and firmware; currently anonymous.
+- TLS                     : MISSING in both collector and firmware.
+- Connection stability    : PARTIAL. 19 Sep logs show "disconnected
+                            (Unspecified error)" roughly every 2 s. Very
+                            likely two collector instances sharing the same
+                            MQTT client ID.
+
+Can the system demonstrate the three MQTT conditions?
+
+Condition            Physically true in lab        Detected by the framework
+-------------------  ----------------------------  ---------------------------
+MQTT without TLS     Yes (cleartext on 1883)       No -- read from config flag
+Anonymous access     Yes (devices and collector    No -- read from config flag;
+                     connect without credentials)  the real anonymous CONNACK
+                                                   is never recorded
+Plaintext MQTT       Yes (collector receives       No -- not captured as
+                     cleartext JSON)               evidence
+
+------------------------------------------------------------------------------
+ D. DATABASE
+------------------------------------------------------------------------------
+
+Live PostgreSQL 18 database has 4 tables:
+  devices            (id BIGSERIAL, device_id, ip_address, mac_address,
+                      device_type, firmware_version, status, created_at,
+                      updated_at)
+  sensor_data        14,296 rows (364 of them 0/0)
+  experiments        1 row (COMPLETED context-aware experiment)
+  experiment_results 3 rows
+
+Entity                         Status
+-----------------------------  ---------------------------------------------
+devices, sensor_data           Stored
+experiments, results           Stored, but values are typed into the script
+findings                       Computed per request, NOT stored
+risk scores                    Computed per request, NOT stored, no history
+evidence                       NOT stored (lives inside the config-built
+                               finding)
+vulnerabilities, CVEs,
+remediation, verification      NOT present
+
+Schema conflict (largest architectural issue):
+- A 24-table UUID-based design exists in backend/app/models/*, Alembic
+  revision b7c4e2a91d30, seed_data.py and tests/test_database.py.
+- It was NEVER applied. Its Device model (UUID key, device_name,
+  criticality, ...) is incompatible with the live devices table (integer key,
+  device_id).
+- seed_data.py contains SYNTHETIC data (192.168.1.x addresses, synthetic
+  Nmap scan, ESP32-02 at 192.168.1.22, risk score 76).
+
+Recommendation: keep the live schema as the source of truth; add about four
+small tables only when needed (assessment runs, evidence, findings, risk
+snapshots). Archive/park the unused 24-table design.
+
+------------------------------------------------------------------------------
+ E. VULNERABILITY ASSESSMENT ENGINE
+------------------------------------------------------------------------------
+
+Only scanner code: scanner/mqtt_checks/mqtt_analyzer.py
+  - check_mqtt_without_tls     fires only when port == 1883 and not
+                               tls_enabled
+  - check_mqtt_anonymous_access fires when anonymous_allowed is true
+  - analyze_mqtt(host, port, tls_enabled, anonymous_allowed, service,
+                 version, observed_topics) takes booleans as INPUT; it does
+                 no probing of any kind.
+  - backend/app/services/finding_service.py feeds it from .env:
+    MQTT_TLS_ENABLED, MQTT_ANONYMOUS_ALLOWED, MQTT_SERVICE_NAME,
+    MQTT_SERVICE_VERSION, MQTT_OBSERVED_TOPICS.
+
+Check                          Implemented?   Evidence source  Tested?  Reliable?
+-----------------------------  -------------  ---------------  -------  ---------
+MQTT without TLS               Rule only      .env flag        No       No (1)
+MQTT anonymous access          Rule only      .env flag        No       No (1)
+Plaintext MQTT                 No separate    --               --       --
+                               check
+Open services / port scan      No             --               --       --
+Unnecessary services           No             --               --       --
+Telnet / HTTP / HTTPS          No (HTTP only  --               --       --
+                               in synthetic
+                               seed data)
+MQTT TLS verification (8883)   No             --               --       --
+MQTT ACL / topic authorization No             --               --       --
+Default / weak credentials     No             --               --       --
+Firmware age / version         No             --               --       --
+Software version / CVE match   No ("mosquitto --               --       --
+                               2.1.2" is a
+                               typed string)
+Attack surface                 No             --               --       --
+
+(1) Fires even when the broker is unreachable (verified during the audit).
+
+Positive: the TLS rule refuses to fire unless the port is 1883, so it cannot
+misreport other ports as missing TLS.
+
+------------------------------------------------------------------------------
+ F. EVIDENCE COLLECTION CLASSIFICATION
+------------------------------------------------------------------------------
+
+Evidence                     Classification
+---------------------------  ----------------------------------------------
+Sensor telemetry             AUTOMATIC
+Device IP                    AUTOMATIC (device-reported)
+Online/offline               AUTOMATIC (inferred from freshness)
+MQTT TLS state               HARDCODED (config)
+MQTT anonymous access        HARDCODED (config)
+Service name and version     HARDCODED (config)
+Observed topics              HARDCODED (config)
+Nmap                         MISSING (any earlier runs were manual; no
+                             artifacts kept)
+Wireshark / TShark           MISSING (same)
+Scapy                        MISSING
+Broker configuration         MISSING
+24-table seeded data         SIMULATED (labelled SYNTHETIC; not loaded into
+                             the live DB)
+
+Conclusion: every security-relevant fact is configuration-asserted. This is
+the main credibility gap of the project.
+
+------------------------------------------------------------------------------
+ G. IoT CONTEXT ENGINE
+------------------------------------------------------------------------------
+
+Source: risk_engine/features/iot_context.py and
+        backend/app/services/risk_service.py
+
+Factor                    How it is set                        Evidence-driven?
+------------------------  -----------------------------------  ---------------
+device_criticality        Fixed env RISK_DEVICE_CRITICALITY=0.3  No
+network_exposure          Fixed env RISK_NETWORK_EXPOSURE=0.3    No
+authentication_security   1.0 if anonymous flag true else 0.0    Only via flag
+protocol_security         1.0 if TLS flag false else 0.0         Only via flag
+firmware_security         Fixed env RISK_FIRMWARE_SECURITY=0.5   No
+                          (higher = MORE risk; name suggests
+                          the opposite)
+
+Structural problems:
+1. Context is GLOBAL: not per device and not per finding, so every finding
+   always gets the same score (both findings = 67.5 HIGH). Findings are not
+   linked to devices.
+2. DOUBLE COUNTING: the same anonymous/TLS flags create the finding AND
+   raise its context. "MQTT without TLS" is scored partly on protocol
+   security being bad, which is the same fact as the finding itself.
+
+------------------------------------------------------------------------------
+ H. DYNAMIC RISK ENGINE (IoT-RISK-v1)
+------------------------------------------------------------------------------
+
+Formula:
+  score = severity_value * 100 * 0.5 + context_value * 100 * 0.5
+Severity map:
+  INFO 0, LOW 0.25, MEDIUM 0.5, HIGH 0.75, CRITICAL 1.0
+Context factor weights (validated at import by validate_weights()):
+  device_criticality 0.30, network_exposure 0.20,
+  authentication_security 0.20, protocol_security 0.20,
+  firmware_security 0.10
+Thresholds:
+  < 20 LOW, < 40 MODERATE, < 60 MEDIUM, < 80 HIGH, >= 80 CRITICAL
+Output:
+  RiskResult with score, level, model version and per-factor contributions.
+
+Scenarios reproduced in memory during the audit:
+
+Scenario                                         Score   Level
+-----------------------------------------------  ------  --------
+A - sensor context, HIGH severity                 67.5   HIGH
+B - critical context, HIGH severity               82.5   CRITICAL
+HIGH severity, TLS + authentication fixed         47.5   MEDIUM
+HIGH severity, TLS only fixed                     57.5   MEDIUM
+LOW severity, minimum context                     12.5   LOW
+CRITICAL severity, maximum context               100.0   CRITICAL
+INFO severity, maximum context                    50.0   MEDIUM  <-- issue
+
+Assessment:
+- Implementation matches the specification; scores are reproducible and
+  explainable.
+- "Same vulnerability, different context -> different score" is
+  demonstrable, but it is a mathematical property of the formula, NOT
+  empirical evidence.
+- Context alone can lift an INFO finding to MEDIUM; needs justification or a
+  guard.
+- Missing: automated tests with assertions, persistence/history,
+  sensitivity analysis, rationale for the weights and the 50/50 split.
+
+------------------------------------------------------------------------------
+ I. AI / QWEN3 / OLLAMA
+------------------------------------------------------------------------------
+
+Source: backend/app/services/ai_explanation.py
+
+Question                               Answer
+-------------------------------------  -------------------------------------
+Ollama integration working?            YES. Verified live: source=ollama,
+                                       qwen3:8b, ~102 s per explanation,
+                                       correct score and level echoed.
+Model configurable?                    YES (OLLAMA_MODEL, OLLAMA_BASE_URL,
+                                       OLLAMA_TIMEOUT). Called via /api/chat,
+                                       format=json, think=False.
+Evidence and risk passed to the LLM?   YES (finding + evidence + risk payload)
+Grounded?                              YES: strict system prompt; output
+                                       validation rejects CVE identifiers
+                                       and banned overclaim phrases; the
+                                       risk_explanation must contain the
+                                       exact score and level; evidence lines
+                                       come from the app, not the LLM;
+                                       attack_scenario overridden with fixed
+                                       "potential" text for known findings.
+Fallback?                              YES, deterministic explanation
+Caching?                               In-memory TTL with lock (600 s
+                                       success, 45 s fallback); lost on
+                                       restart
+Calculates authoritative risk?         NO
+Can invent vulnerabilities?            NO -- only explains existing finding
+                                       types; unknown type returns 404
+Sees all findings?                     NO -- one finding per request
+Tool calling available in model?       YES (qwen3:8b reports "tools"
+                                       capability) -- not used yet
+
+CLASSIFICATION: A -- a well-guarded per-finding explanation generator.
+It is NOT an analyst assistant, NOT an orchestrator, NOT a conversational
+advisor. There is no chat, no intent understanding, no tool calling, and no
+ability to start an assessment.
+
+------------------------------------------------------------------------------
+ J. FRONTEND vs "AI SECURITY ADVISOR" TARGET
+------------------------------------------------------------------------------
+
+Current:
+- Five sections: Overview, Devices, Findings, Risk & Research, AI Analysis.
+- iOS-style bottom navigation dock, glass-style detail drawers,
+  system-status modal.
+- Read-only; useAsyncData polling every 15 s; loading, error and empty
+  states; responsive layout; riskPresentation.ts for plain-language risk.
+- No frontend tests.
+
+Gap to target:
+- Still a reporting dashboard, not an assistant.
+- Needs a chat-first screen, a "Run security check" action (requires POST
+  endpoints; the API currently allows GET only via CORS), and a
+  remediation + "verify fix" flow.
+- About half of the existing views can be reused as detail panels.
+- Effort: medium to large; should come AFTER the backend work.
+
+------------------------------------------------------------------------------
+ K. REMEDIATION
+------------------------------------------------------------------------------
+
+Feature                          Status
+-------------------------------  -------------------------------
+Recommendations                  Static text per finding only
+Guided remediation               MISSING
+Automatic remediation            MISSING
+Remediation status tracking      MISSING
+User confirmation                MISSING
+Verification / re-scan           MISSING
+Before/after risk comparison     MISSING
+
+------------------------------------------------------------------------------
+ L. RESEARCH AND EXPERIMENTS
+------------------------------------------------------------------------------
+
+#   Experiment                                  Status
+--  ------------------------------------------  ---------------------------
+1   Vulnerability detection validation          MISSING
+2   Dynamic risk sensitivity                    MISSING
+3   Static severity vs contextual risk          PARTIAL (one two-scenario
+                                                example)
+4   Device criticality variation                PARTIAL (changed together
+                                                with other factors)
+5   Network exposure variation                  PARTIAL (same)
+6   Authentication variation                    MISSING
+7   Protocol security variation                 MISSING
+8   Firmware security variation                 PARTIAL (changed together
+                                                with other factors)
+9   AI explanation grounding                    MISSING (guardrails exist,
+                                                no evaluation)
+10  AI hallucination testing                    MISSING
+11  Remediation verification                    MISSING
+
+Issue: backend/scripts/record_context_experiment.py writes 67.5 / 82.5 / 15.0
+as typed-in values instead of computing them from the engine. The numbers
+happen to be correct, but this weakens the research record.
+
+------------------------------------------------------------------------------
+ M. TESTING
+------------------------------------------------------------------------------
+
+Area                         Status
+---------------------------  ----------------------------------------------
+Database tests               Exist, but target the never-applied 24-table
+                             schema (24 tables, device_name, ESP32-02 at
+                             192.168.1.22, score 76). Would fail or skip
+                             against the live DB.
+Risk engine                  test_mqtt_risk.py, test_context_experiment.py
+                             are print scripts with no test_ functions and
+                             no assertions.
+API                          None
+Scanner                      None
+Collector                    None
+AI                           None
+Frontend                     None
+
+Effective automated coverage of the working system: approximately zero.
+
+------------------------------------------------------------------------------
+ N. DOCUMENTATION
+------------------------------------------------------------------------------
+
+- PROJECT_STATUS.md still says 15% / Phase 4 pending.
+- EXPERIMENT_LOG.md says "No experiments yet".
+- docs/architecture/database-phase4-status.md is stale.
+- README.md promises ML, SHAP and Raspberry Pi components that are not
+  started, and references a mqtt_collector\requirements.txt that does not
+  exist. No quick start.
+- No run instructions for the API, frontend or Ollama.
+- No Mosquitto setup guide.
+- docs/research/research-questions.md lists RQ1-RQ4; RQ3 (ML) not started.
+
+Conclusion: another person could not reproduce the project from the docs.
+
+==============================================================================
+ COMPLETION SCORING
+==============================================================================
+
+Software / prototype (weighted):
+
+Cat  Area                         Weight  Done  Points  Importance
+---  ---------------------------  ------  ----  ------  ----------
+A    IoT testbed                    10%    70%   7.00    High
+B    Data / MQTT / backend          10%    70%   7.00    High
+C    Vulnerability assessment       20%    15%   3.00    Critical
+D    Evidence collection            10%    10%   1.00    Critical
+E    IoT context engine             10%    30%   3.00    High
+F    Dynamic risk engine            15%    65%   9.75    High
+G    AI security assistant          10%    35%   3.50    High
+H    Frontend / UX                   5%    55%   2.75    Medium
+I    Remediation / verification      5%    10%   0.50    High
+J    Research experiments            5%    15%   0.75    High
+                                                ------
+                                     TOTAL  ~38%  38.25
+
+Evidence and missing work per category:
+A  Evidence: 2 ESP32 + DHT22 + MQTT + IP + validation.
+   Missing : firmware version, TLS/auth firmware variant, testbed not running.
+B  Evidence: collector works, 9 endpoints verified.
+   Missing : schema conflict, no Mosquitto config, GET-only API.
+C  Evidence: 2 rule functions.
+   Missing : any real detection.
+D  Evidence: telemetry only.
+   Missing : MQTT probe, Nmap, TShark, provenance.
+E  Evidence: factor model exists.
+   Missing : per-device, evidence-derived, no double counting.
+F  Evidence: formula verified and explainable.
+   Missing : tests, persistence, sensitivity, rationale.
+G  Evidence: grounded explanations + fallback.
+   Missing : chat, intent routing, orchestration.
+H  Evidence: 5 working views.
+   Missing : assistant UX, actions.
+I  Evidence: static advice.
+   Missing : everything else.
+J  Evidence: one illustrative example.
+   Missing : real computed experiments.
+
+Research completion (~15%):
+  Detection validation               25% weight ->  5% done
+  Risk model justification/sensit.   25% weight -> 15% done
+  AI grounding evaluation            15% weight -> 10% done
+  Remediation verification           10% weight ->  0% done
+  Problem framing and architecture   10% weight -> 40% done
+  Thesis and reproducibility         15% weight -> 15% done
+  Weighted ~13%, rounded to ~15%.
+
+Overall: ~27% (equal-weight average of software and research).
+
+Component classification:
+  COMPLETED            : telemetry pipeline, collector, device status
+                         derivation, read API, IoT-RISK-v1 formula, Ollama
+                         explanation layer, read-only dashboard, secrets
+                         separation
+  PARTIALLY COMPLETED  : MQTT rules, context engine, context experiment,
+                         AI layer, firmware, documentation
+  PLANNED ONLY         : 24-table schema / Alembic / seed, scanner submodules,
+                         ML (RQ3), Raspberry Pi
+  NOT STARTED          : active probing, Nmap/TShark integration, evidence
+                         storage, remediation loop, conversational assistant,
+                         most experiments, real tests
+  BROKEN               : tests/test_database.py vs live schema; config-based
+                         findings reported while broker is down
+  UNKNOWN              : whether the firmware 0/0 fix was flashed; current
+                         physical state of the testbed
+
+==============================================================================
+ ARCHITECTURE: CURRENT vs TARGET
+==============================================================================
+
+CURRENT (what actually exists):
+
+  DHT22 -> ESP32 (x2) -> Wi-Fi -> Mosquitto :1883 (anonymous, plaintext;
+                                  config not in repo)
+                                     |
+                                     v
+                         MQTT Collector -> PostgreSQL (devices, sensor_data)
+
+  .env flags (TLS=false, ANON=true, version, topics)
+        -> mqtt_analyzer (2 if-rules) -> findings (not stored)
+  .env context (0.3 / 0.3 / 0.5) + same flags
+        -> IoT-RISK-v1 -> risk (not stored)
+  finding + risk -> Qwen3 via Ollama (guarded) / fallback -> explanation
+  typed-in experiment values -> experiments table
+  everything above -> read-only React dashboard
+
+TARGET:
+
+  User <-> AI Security Assistant
+           (intent -> calls deterministic tools -> grounded narration)
+             | starts assessment run
+             v
+  Scope / allowlist guard
+             v
+  Discovery (Nmap) + MQTT active probe + traffic evidence (TShark/collector)
+             v  evidence stored with provenance
+  Vulnerability engine (rules over observed evidence only)
+             v
+  Per-device IoT context engine (inventory + evidence)
+             v
+  Dynamic risk engine (versioned, stored per run)
+             v
+  AI analyst -> guidance -> remediation playbook -> user applies fix
+             v
+  Re-assessment -> before/after diff -> risk change
+
+==============================================================================
+ COMPLETED / PARTIAL / MISSING
+==============================================================================
+
+COMPLETED (verified)
+ 1. ESP32 + DHT22 telemetry pipeline into PostgreSQL (14k+ rows; last data
+    19 Sep).
+ 2. Collector validation: unknown devices, humidity range, 0/0 rejection,
+    IP update.
+ 3. Online/offline/unknown status derived from telemetry freshness.
+ 4. All 9 API endpoints respond: /, /api/v1/health, /devices, /findings,
+    /risk, /experiments, /experiments/{id}, /explanations/{type}.
+ 5. IoT-RISK-v1 formula, weights, thresholds, versioning, per-factor
+    contributions (calculations reproduced).
+ 6. Ollama qwen3:8b integration with guardrails, fallback and cache (live
+    call succeeded).
+ 7. Read-only React dashboard with five sections.
+ 8. Secrets kept out of git (.env, secrets.h).
+
+PARTIAL
+ 1. MQTT findings -- rules exist, evidence is configuration.
+ 2. IoT context -- model exists, values static and global.
+ 3. Context-aware experiment -- one illustrative pair, typed-in values.
+ 4. AI -- explanation generator, not an assistant.
+ 5. Firmware -- no version reporting, no TLS/auth variant.
+ 6. Documentation -- vision only, not reproducible.
+
+MISSING
+ 1. Active MQTT probing (anonymous connection test, TLS handshake).
+ 2. Nmap discovery and service detection integrated in the pipeline.
+ 3. Traffic/plaintext evidence capture (TShark or the collector itself).
+ 4. Storage of evidence, findings and risk per assessment run.
+ 5. A way to start an assessment from the API.
+ 6. Remediation playbooks, secure broker configuration, re-assessment,
+    before/after comparison.
+ 7. Conversational assistant with tool orchestration.
+ 8. Detection validation, sensitivity analysis, AI hallucination evaluation.
+ 9. Meaningful automated tests.
+
+==============================================================================
+ TECHNICAL DEBT AND BUGS
+==============================================================================
+
+ 1. Findings come from config flags and are reported even when the broker
+    is unreachable (verified).
+ 2. Double counting: the same flags drive both the finding and its context.
+ 3. Context is global, so all findings always score the same.
+ 4. Schema conflict: 24-table models/migration/seed/tests vs live 4-table DB.
+ 5. Risk-engine "tests" have no assertions; experiment script stores
+    typed-in results.
+ 6. devices.status column is stale; 364 historical 0/0 rows remain.
+ 7. Firmware version is a seeded constant.
+ 8. Probable duplicate MQTT client ID causing reconnects every ~2 s.
+ 9. AI takes ~100 s per explanation; cache is memory-only.
+10. Context can lift an INFO finding to MEDIUM.
+11. firmware_security semantics inverted (higher = riskier).
+12. Mosquitto config not in repo; broker IP hardcoded in example and README.
+13. API allows GET only (CORS); no action endpoints; no authentication.
+14. Stale docs; README promises ML and SHAP that are not started.
+15. Empty placeholder folders (scanner submodules, ml/, raspberry_pi/,
+    ESP32-03); stray backend.zip in repo root.
+
+==============================================================================
+ GAPS: RESEARCH / DEMO / VIVA
+==============================================================================
+
+RESEARCH GAPS
+- Observed evidence with provenance.
+- Detection accuracy (TP/FP/FN) across known-insecure and known-secure
+  broker configurations.
+- Justification of the factor weights and the 50/50 split.
+- One-factor-at-a-time sensitivity analysis.
+- Comparison against a severity-only baseline AND against CVSS
+  environmental metrics (CVSS already supports context adjustment; this is
+  the obvious comparison an examiner will ask for).
+- Before/after risk change from remediation.
+- AI grounding and hallucination metrics.
+- Explicit decision to drop or defer ML (RQ3).
+- Threats-to-validity section (two devices, one broker, private lab).
+
+DEMO GAPS
+- Broker must be reachable and collector stable.
+- "Check my IoT security" must produce findings from live observation.
+- Need one fix (e.g. disable anonymous access) plus a re-check showing the
+  finding resolved and the risk dropping.
+- Assistant must answer quickly (pre-generated explanations or
+  deterministic answers first).
+- Fallbacks must work if Ollama is slow.
+
+VIVA GAPS (expected questions)
+- How do you know TLS is off / anonymous access is on?
+- Why these weights?
+- Isn't the context double counting the finding?
+- How is this different from CVSS environmental scoring?
+- How did you validate the risk scores?
+- How do you prevent and measure LLM hallucination?
+- Why a local LLM, and what about latency?
+- Scope, authorization and ethics.
+- Small testbed size.
+- Why is the ML promised in the README absent?
+
+==============================================================================
+ PRIORITIZED ROADMAP (PHASES 0-8)
+==============================================================================
+
+Format per task: ID | Name | Why | Status | Depends on | Effort (S/M/L) |
+                 Priority | Output | How to verify
+
+PHASE 0 -- STABILIZATION
+S0.1 | Make the 4-table schema the source of truth; park the 24-table design
+     | Removes the architectural conflict | Conflict | -- | M | P0
+     | Decision recorded; unused models/migration/seed archived
+     | Tests import only live-schema code
+S0.2 | Restore broker; one collector with unique client ID; commit Mosquitto
+       insecure and secure configs
+     | Testbed must run; configs reproducible | Broker down | -- | S | P0
+     | Configs in repo | Collector log shows no reconnect churn for 10 min
+S0.3 | Real pytest tests for the risk engine (known scores, thresholds,
+       weight validation)
+     | Regression safety | Missing | -- | S | P0 | Test file | pytest passes
+S0.4 | Firmware reports its version
+     | Needed for firmware context and CVE work | Partial | -- | S | P2
+     | Version in payload | DB shows reported version
+S0.5 | Update README, PROJECT_STATUS, EXPERIMENT_LOG
+     | Reproducibility | Stale | -- | S | P1 | Accurate docs
+     | A fresh reader can run the stack
+
+PHASE 1 -- SECURITY ASSESSMENT ENGINE
+A1.1 | Active MQTT probe: connect without credentials and record CONNACK;
+       try TLS handshake on 8883; record raw results
+     | Replaces config flags with observation | Missing | S0.2 | M | P0
+     | Probe module returning evidence
+     | Insecure broker -> anonymous accepted, no TLS;
+       secure broker -> rejected / TLS OK
+A1.2 | Findings built only from probe evidence; broker unreachable =
+       "assessment incomplete"
+     | Never fabricate | Config-based | A1.1 | S | P0 | Updated finding
+       service | Broker down -> no findings
+A1.3 | Scope allowlist (authorized targets only)
+     | Safety and ethics | Missing | -- | S | P0 | Target allowlist
+     | Non-allowlisted target refused
+A1.4 | Nmap service discovery with parsed XML (ports, services, versions);
+       Telnet/HTTP rules only when observed
+     | Attack surface | Missing | A1.3 | M | P1 | Discovery module
+     | Results match a manual Nmap run
+A1.5 | Detection validation harness (ground-truth configurations)
+     | RQ1 metrics | Missing | A1.1 | M | P1 | TP/FP/FN table
+     | Repeatable over N runs
+
+PHASE 2 -- AUTOMATED EVIDENCE COLLECTION
+E2.1 | Assessment-run and evidence tables (raw JSON, tool, timestamp,
+       provenance)
+     | Traceability | Missing | S0.1 | M | P0 | New tables + persistence
+     | Every finding links to an evidence row
+E2.2 | Plaintext evidence (collector observes cleartext payloads, or short
+       TShark capture on 1883)
+     | Proves plaintext | Missing | E2.1 | M | P1 | Evidence record
+     | Evidence shows cleartext observed = yes
+E2.3 | Provenance label (automatic / manual / configured) exposed in API
+     | Research honesty | Missing | E2.1 | S | P0 | API field
+     | UI shows the source
+
+PHASE 3 -- DYNAMIC RISK AND CONTEXT
+R3.1 | Per-device context profile (criticality/exposure from inventory with
+       justification; auth/protocol from evidence)
+     | Realistic context | Global/static | E2.1 | M | P0 | Context per device
+     | Two devices with different profiles get different scores
+R3.2 | Resolve double counting; document as IoT-RISK-v1.1
+     | Viva defensibility | Present | R3.1 | M | P1 | Decision record +
+       version bump | Tests updated
+R3.3 | Store a risk snapshot per run
+     | Before/after comparison | Missing | E2.1 | S | P0 | Snapshot rows
+     | History query works
+R3.4 | Computed sensitivity analysis (one factor at a time + grid)
+     | RQ2 evidence | Missing | S0.3 | M | P1 | CSV + plots generated by code
+     | Re-run gives identical output
+R3.5 | Baseline comparison (severity-only and CVSS environmental
+       approximation)
+     | Shows the contribution | Missing | R3.4 | M | P1 | Ranking comparison
+       table | Documented differences
+
+PHASE 4 -- AI SECURITY ASSISTANT
+AI4.1 | Assistant chat endpoint: intents (check / explain / how to fix /
+        verify) mapped to deterministic tools; LLM only narrates
+      | Core product vision | Missing | A1.2, R3.3 | L | P0 | Chat API
+      | "Check my IoT security" runs a real assessment
+AI4.2 | Answers cite finding and evidence IDs; reuse existing guardrails
+      | Grounding | Partial | AI4.1 | S | P0 | Citations in replies
+      | Every claim maps to an ID
+AI4.3 | Latency: pre-generate explanations after each run; instant
+        deterministic reply, then LLM detail
+      | Demo reliability | ~100 s | AI4.1 | M | P1 | Fast replies
+      | First answer under 3 s
+AI4.4 | Hallucination test set (adversarial questions)
+      | RQ4 metrics | Missing | AI4.2 | M | P1 | Grounding scores
+      | Reproducible evaluation
+
+PHASE 5 -- REMEDIATION AND VERIFICATION
+RM5.1 | Deterministic remediation playbooks (Mosquitto password file and
+        ACL; TLS listener; firmware credentials)
+      | Guidance | Static text | -- | S | P0 | Playbooks
+      | Steps work in the lab
+RM5.2 | Secure configuration: authentication first, then TLS in firmware
+        and collector
+      | Something to verify | Missing | S0.2 | M-L | P0 (auth) / P1 (TLS)
+      | Secure variants | Devices connect with credentials
+RM5.3 | Re-assessment + before/after comparison (resolved findings, risk
+        change)
+      | Closes the loop | Missing | A1.2, R3.3 | M | P0 | Comparison API
+      | Disabling anonymous access removes that finding and lowers risk
+
+PHASE 6 -- RESEARCH EXPERIMENTS (all computed by code and stored)
+X6.1 | Detection validation (insecure vs secure, N runs) | P1 | M
+     | Verify: precision/recall table
+X6.2 | Sensitivity analysis per factor | P1 | S
+     | Verify: plots, re-runnable
+X6.3 | Static vs contextual comparison | P1 | M
+     | Verify: ranking differences
+X6.4 | Remediation before/after | P1 | S
+     | Verify: risk change per fix
+X6.5 | AI grounding and hallucination | P1 | M
+     | Verify: grounding metrics
+
+PHASE 7 -- FINAL UI AND DEMO
+U7.1 | Assistant-first screen with "Check security", chat, fix, verify;
+       existing pages become detail views | P1 | M
+U7.2 | Before/after risk view | P1 | S
+U7.3 | Visual polish | P3 | --
+
+PHASE 8 -- THESIS AND DOCUMENTATION
+D8.1 | Reproducibility guide (lab, broker configs, run order) | P1 | M
+D8.2 | Methodology, model rationale, threats to validity | P1 | M
+D8.3 | Viva Q&A preparation | P1 | S
+
+==============================================================================
+ MINIMUM VIABLE M.TECH DEMO (3-5 DAYS)
+==============================================================================
+
+Workflow step              Reuse                          Build
+-------------------------  -----------------------------  --------------------
+User starts security check Header/dashboard shell         Start-assessment POST
+                                                          endpoint + button (or
+                                                          one chat intent)
+Discover the IoT device    Device inventory, IP, status   Probe targets the
+                                                          allowlisted broker
+                                                          and device list
+Collect evidence           Collector (cleartext receipt)  MQTT probe evidence
+                                                          (A1.1)
+Detect the issue           Rule templates in              Feed them probe
+                           mqtt_analyzer                  evidence (A1.2)
+Calculate IoT risk         IoT-RISK-v1                    Per-device context
+                                                          (R3.1-lite) +
+                                                          snapshot (R3.3)
+AI explains                explain_finding + guardrails   Pre-generation
+                           + fallback                     (AI4.3-lite)
+User gets remediation      Static remediation text        Playbook "disable
+                                                          anonymous access"
+                                                          (RM5.1)
+System verifies the fix    --                             Re-run + before/after
+                                                          (RM5.3)
+Risk changes               Risk view                      Display risk change
+
+Demonstrate authentication remediation first; TLS on the ESP32 can follow.
+
+==============================================================================
+ RESEARCH CONTRIBUTION EVALUATION
+==============================================================================
+
+Proposed contribution: context-aware dynamic risk scoring for IoT
+vulnerabilities combined with evidence-grounded AI security assistance.
+
+ALREADY DEMONSTRATED
+- Deterministic, versioned, explainable context-weighted score.
+- Under that model, the same severity in a different context gives a
+  different score (67.5 vs 82.5).
+- LLM explanation layer constrained to supplied data, with validation and
+  fallback.
+- Working ESP32 telemetry testbed.
+
+STILL NEEDS EXPERIMENTAL EVIDENCE
+- Detection accuracy.
+- Sensitivity and robustness of the score.
+- Advantage over severity-only and CVSS environmental scoring.
+- Risk reduction from remediation.
+- AI grounding and hallucination rates.
+
+SAFE CLAIMS NOW
+- The framework computes explainable, context-aware risk scores.
+- The AI only explains authoritative findings and scores.
+- The testbed collects real telemetry.
+
+UNSAFE CLAIMS (must NOT be made yet)
+- That the framework automatically detects missing TLS or anonymous MQTT.
+- That Nmap or Wireshark are integrated.
+- That the scores are validated or better than CVSS.
+- That ML or SHAP is used.
+- That any attack was performed, or that devices are Internet-exposed.
+- That the AI detects vulnerabilities.
+
+==============================================================================
+ FINAL SUMMARY
+==============================================================================
+
+PROJECT STATUS
+---------------
+Software/Prototype: 38%
+Research: 15%
+Overall: 27%
+
+COMPLETED
+---------
+1. ESP32 + DHT22 -> MQTT -> collector -> PostgreSQL telemetry pipeline, with
+   validation (including 0/0 rejection) and device IP capture
+2. FastAPI read API (9 endpoints verified) with freshness-based
+   online/offline/unknown status
+3. IoT-RISK-v1 deterministic, versioned, explainable scoring formula
+   (calculations reproduced)
+4. Ollama qwen3:8b grounded explanation layer with output validation,
+   deterministic fallback and caching (live call verified)
+5. Read-only React dashboard (Overview, Devices, Findings, Risk & Research,
+   AI)
+6. Secrets kept out of version control
+
+PARTIAL
+-------
+1. MQTT vulnerability rules (logic exists; evidence is configuration-asserted)
+2. IoT context engine (global, static values; double counts the finding's own
+   flags)
+3. Context-aware experiment (one illustrative pair; results typed in)
+4. AI layer (per-finding explainer, not an assistant or orchestrator)
+5. Firmware (no version reporting; no TLS or authentication variant)
+6. Documentation (vision and setup fragments; not reproducible, status files
+   stale)
+
+MISSING
+-------
+1. Observed evidence collection (MQTT active probe, Nmap, TShark/plaintext
+   capture) with provenance
+2. Stored assessment runs, evidence, findings and risk history
+3. Conversational AI security assistant with tool orchestration
+4. Remediation playbooks, secure broker configuration, re-assessment and
+   before/after risk comparison
+5. Research experiments: detection validation, sensitivity, baseline/CVSS
+   comparison, AI grounding evaluation, remediation verification
+6. Meaningful automated tests (API, scanner, risk, AI, frontend)
+
+CRITICAL BUGS / TECHNICAL DEBT
+------------------------------
+1. Findings come from .env flags and are reported even when the broker is
+   unreachable (verified)
+2. Double counting: anonymous/TLS flags create the finding and also raise its
+   context; context is global, so all findings score identically
+3. Schema conflict: 24-table ORM models, migration, seed and tests vs the
+   live 4-table database (Device models incompatible)
+4. Risk-engine "tests" have no assertions; the experiment script stores
+   typed-in results
+5. Mosquitto config not in the repo; broker currently unreachable; probable
+   duplicate collector client ID causing reconnect churn
+6. INFO severity can reach MEDIUM through context alone; firmware_security
+   semantics inverted; stale devices.status column; 364 old 0/0 rows
+
+P0 NEXT TASKS
+-------------
+1. S0.1 + S0.2 -- make the live schema authoritative; restore the broker; one
+   collector instance; commit insecure and secure Mosquitto configs
+2. A1.1 + A1.2 + A1.3 -- active MQTT probe with scope allowlist; findings only
+   from observed evidence
+3. E2.1 + E2.3 + R3.3 -- store assessment runs, evidence (with provenance)
+   and risk snapshots
+4. RM5.1 + RM5.2 (authentication) + RM5.3 -- "disable anonymous access"
+   playbook, re-assessment and before/after risk change
+5. AI4.1 + AI4.2 -- assistant chat endpoint routing check / explain / fix /
+   verify to deterministic tools, with cited evidence
+
+P1 NEXT TASKS
+-------------
+1. R3.1 + R3.2 -- per-device, evidence-derived context; resolve double
+   counting (IoT-RISK-v1.1, documented)
+2. X6.1-X6.5 -- computed experiments: detection validation, sensitivity,
+   severity-only and CVSS-environmental baselines, remediation change, AI
+   grounding
+3. A1.4 + E2.2 + U7.1 + D8.1/D8.2 -- Nmap discovery, plaintext evidence,
+   assistant-first UI, reproducibility and methodology docs
+
+3-5 DAY DEMO
+------------
+Day 1: Stabilize (broker reachable, single collector, Mosquitto insecure and
+       secure configs in the repo, risk-engine pytest).
+Day 2: MQTT active probe (anonymous connection test, TLS check) with
+       allowlist; findings only from probe evidence; broker unreachable ->
+       "assessment incomplete".
+Day 3: Store assessment runs, evidence and risk snapshots; start-assessment
+       endpoint; provenance in the API.
+Day 4: "Disable anonymous access" playbook plus re-assessment, showing the
+       anonymous-access finding resolved and the risk falling from 67.5 to
+       57.5 under the current model.
+Day 5: Assistant chat endpoint (check / explain / fix / verify) calling the
+       deterministic tools, with pre-generated Qwen explanations and
+       fallback; minimal chat panel on the existing dashboard.
+Reused: firmware, collector, device service, IoT-RISK-v1, explain_finding and
+its guardrails, dashboard shell.
+
+7-DAY ROADMAP
+-------------
+Day 1: S0.1, S0.2, S0.3 -- schema decision, broker/collector stability,
+       committed Mosquitto configs, real risk-engine tests.
+       Result: stable, testable baseline.
+Day 2: A1.1, A1.2, A1.3 -- MQTT active probe, observed-evidence findings,
+       scope allowlist.
+       Result: findings disappear when broker is secure or unreachable.
+Day 3: E2.1, E2.3, R3.3, start-assessment endpoint.
+       Result: every finding traceable to stored evidence and a risk snapshot.
+Day 4: RM5.1, RM5.2 (authentication), RM5.3.
+       Result: fix applied, then re-check shows finding resolved and the
+       risk change.
+Day 5: AI4.1, AI4.2, AI4.3-lite.
+       Result: "Check my IoT security" / "How do I fix this?" / "Did the fix
+       work?" answered from real runs.
+Day 6: R3.1 (per-device context), X6.2 sensitivity and X6.4 remediation
+       experiments, computed and stored.
+       Result: first real research data.
+Day 7: Minimal assistant-first UI panel + before/after view; update README,
+       PROJECT_STATUS and EXPERIMENT_LOG; rehearse the end-to-end demo.
+       Result: reliable demo plus accurate docs.
+
+RESEARCH VALIDATION REQUIRED
+----------------------------
+1. Detection validation: TP/FP/FN of the MQTT probe (and later Nmap) across
+   ground-truth insecure and secure broker configurations, repeated runs
+2. Risk model validation: one-factor-at-a-time and grid sensitivity, weight
+   rationale, double-counting decision, comparison against severity-only and
+   CVSS environmental scoring
+3. Remediation effect: computed before/after risk change per fix
+   (authentication, then TLS)
+4. AI grounding: adversarial question set, rate of unsupported claims and
+   invented CVEs, score/level fidelity, fallback rate and latency
+5. Scope decision: formally drop or defer ML (RQ3) and document threats to
+   validity (two devices, one broker, private lab)
+
+FINAL RECOMMENDATION
+--------------------
+Continue in this exact order:
+ 1. Stabilize: schema decision, broker/collector reliability, committed
+    Mosquitto configs, real risk tests.
+ 2. Replace config flags with an active MQTT probe and a scope allowlist, so
+    findings are observed and never fabricated.
+ 3. Store assessment runs, evidence with provenance, and risk snapshots.
+ 4. Remediation loop: authentication playbook, re-assessment, before/after
+    risk change (TLS second).
+ 5. AI security assistant: chat endpoint orchestrating the deterministic
+    tools, with cited evidence and fast fallback.
+ 6. Fix the context engine: per-device, evidence-derived, no double counting;
+    version it as IoT-RISK-v1.1.
+ 7. Run the computed research experiments (detection, sensitivity,
+    baselines, remediation, AI grounding).
+ 8. Add Nmap discovery and plaintext-traffic evidence to widen the covered
+    attack surface.
+ 9. Assistant-first UI built on the existing views.
+10. Thesis/reproducibility documentation and viva preparation; cosmetic UI
+    polish last.
+
+==============================================================================
+ END OF REPORT
+==============================================================================
