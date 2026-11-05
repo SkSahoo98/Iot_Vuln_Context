@@ -229,3 +229,63 @@ class TestProductionSecurity:
                 assert resp.status_code == 201
             finally:
                 app.dependency_overrides.clear()
+
+    def test_health_reports_production_read_only_capabilities(self) -> None:
+        """GET /api/v1/health must report read-only mode and disabled active assessment in production."""
+        settings = Settings(
+            environment="production",
+            read_only_mode=True,
+            assessment_allowed_targets="",
+        )
+        app.dependency_overrides[get_settings] = lambda: settings
+        try:
+            client = TestClient(app)
+            resp = client.get("/api/v1/health")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "ok"
+            assert data["service"] == "iot-security-framework"
+            assert data["environment"] == "production"
+            assert data["read_only_mode"] is True
+            assert data["active_assessment_supported"] is False
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_health_reports_local_lab_capabilities(self) -> None:
+        """GET /api/v1/health must report active assessment supported in local lab with allowlist."""
+        settings = Settings(
+            environment="development",
+            read_only_mode=False,
+            assessment_allowed_targets="10.32.252.105,10.32.252.57,10.32.252.85",
+        )
+        app.dependency_overrides[get_settings] = lambda: settings
+        try:
+            client = TestClient(app)
+            resp = client.get("/api/v1/health")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "ok"
+            assert data["service"] == "iot-security-framework"
+            assert data["environment"] == "development"
+            assert data["read_only_mode"] is False
+            assert data["active_assessment_supported"] is True
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_health_reports_local_lab_without_allowlist(self) -> None:
+        """GET /api/v1/health must report active assessment not supported if allowlist is empty."""
+        settings = Settings(
+            environment="development",
+            read_only_mode=False,
+            assessment_allowed_targets="",
+        )
+        app.dependency_overrides[get_settings] = lambda: settings
+        try:
+            client = TestClient(app)
+            resp = client.get("/api/v1/health")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["read_only_mode"] is False
+            assert data["active_assessment_supported"] is False
+        finally:
+            app.dependency_overrides.clear()

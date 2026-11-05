@@ -9,9 +9,20 @@ type Props = {
   onRefresh: () => void;
   /** Matches the wider Assistant workspace. */
   wide?: boolean;
+  isReadOnly?: boolean;
+  modeLabel?: string;
 };
 
-export function Header({ section, apiOnline, onNavigate, onOpenStatus, onRefresh, wide = false }: Props) {
+export function Header({
+  section,
+  apiOnline,
+  onNavigate,
+  onOpenStatus,
+  onRefresh,
+  wide = false,
+  isReadOnly = false,
+  modeLabel,
+}: Props) {
   const statusLabel =
     apiOnline === null
       ? "Checking…"
@@ -24,6 +35,9 @@ export function Header({ section, apiOnline, onNavigate, onOpenStatus, onRefresh
       : apiOnline
         ? "bg-[var(--ok)]"
         : "bg-[var(--danger)]";
+
+  const displayModeLabel =
+    modeLabel ?? (isReadOnly ? "Cloud Read-Only" : "Active Laboratory Mode");
 
   return (
     <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[var(--bg)]/70 backdrop-blur-2xl">
@@ -45,6 +59,22 @@ export function Header({ section, apiOnline, onNavigate, onOpenStatus, onRefresh
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          {/* Environment Mode Pill */}
+          <span
+            className={`mono hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium sm:inline-flex ${
+              isReadOnly
+                ? "border-sky-500/30 bg-sky-500/10 text-sky-400"
+                : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                isReadOnly ? "bg-sky-400" : "bg-emerald-400"
+              }`}
+            />
+            {displayModeLabel}
+          </span>
+
           <button
             type="button"
             onClick={onOpenStatus}

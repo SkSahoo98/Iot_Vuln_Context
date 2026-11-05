@@ -10,6 +10,14 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class HealthOut(BaseModel):
+    status: str = "ok"
+    service: str = "iot-security-framework"
+    environment: str = "development"
+    read_only_mode: bool = False
+    active_assessment_supported: bool = False
+
+
 class DeviceTelemetryOut(BaseModel):
     temperature: float
     humidity: float

@@ -41,6 +41,7 @@ type Props = {
   onOpenAssessment?: (assessmentId: string) => void;
   onOpenComparison?: (pair: ReassessmentPair) => void;
   onOpenResearch?: () => void;
+  isReadOnly?: boolean;
 };
 
 type SectionProps = {
@@ -354,12 +355,14 @@ function AssessmentDetailBody({
   onOpenAssessment,
   onOpenComparison,
   onOpenResearch,
+  isReadOnly = false,
 }: Props & { data: AssessmentDetail }) {
   const verification = useVerification(data, history);
   const [verifyRequest, setVerifyRequest] = useState(0);
   const posture = data.metadata?.posture as EnvironmentPosture | undefined;
 
   function runVerification() {
+    if (isReadOnly) return;
     setVerifyRequest((value) => value + 1);
     document
       .getElementById("assessment-reassessment")
@@ -381,6 +384,7 @@ function AssessmentDetailBody({
           onComplete={onReassessmentComplete}
           onOpenAssessment={onOpenAssessment}
           requestToken={verifyRequest}
+          isReadOnly={isReadOnly}
         />
       </DetailSection>
 
@@ -420,7 +424,7 @@ function AssessmentDetailBody({
           detail={data}
           state={verification.state}
           onRetry={verification.retry}
-          onRunVerification={runVerification}
+          onRunVerification={isReadOnly ? undefined : runVerification}
           onOpenComparison={onOpenComparison}
         />
       </DetailSection>

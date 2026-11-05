@@ -24,6 +24,7 @@ import { RiskResearchPage } from "./components/risk/RiskResearchPage";
 import { SecurityPage } from "./components/security/SecurityPage";
 import { useAnchorScroll } from "./hooks/useAnchorScroll";
 import { useAsyncData } from "./hooks/useAsyncData";
+import { resolveAppMode } from "./lib/appMode";
 import {
   MAX_CONVERSATION_MESSAGES,
   type AssistantMessage,
@@ -245,6 +246,8 @@ export default function App() {
     ? explanationCache[selectedFindingType] ?? null
     : null;
 
+  const appMode = useMemo(() => resolveAppMode(health.data), [health.data]);
+
   const apiOnline = health.loading
     ? null
     : health.error
@@ -294,6 +297,8 @@ export default function App() {
         onNavigate={goTo}
         onOpenStatus={() => setStatusOpen(true)}
         onRefresh={refreshAll}
+        isReadOnly={appMode.isReadOnly}
+        modeLabel={appMode.modeLabel}
       >
         {section === "assistant" ? (
           <AssistantPage
@@ -307,6 +312,7 @@ export default function App() {
             getWorkflow={getAssistantWorkflow}
             onWorkflowChange={updateAssistantWorkflow}
             onAssessmentCreated={assessments.reload}
+            isReadOnly={appMode.isReadOnly}
           />
         ) : null}
 
@@ -321,6 +327,7 @@ export default function App() {
             onNavigate={navigate}
             onScrollTo={scrollTo}
             onReassessmentCreated={() => assessments.reload()}
+            isReadOnly={appMode.isReadOnly}
           />
         ) : null}
 
@@ -339,6 +346,7 @@ export default function App() {
               setSelectedDevice(device);
               setDeviceDrawerOpen(true);
             }}
+            isReadOnly={appMode.isReadOnly}
           />
         ) : null}
 
@@ -354,6 +362,9 @@ export default function App() {
             initialComparison={nav.request.comparison}
             onScrollTo={scrollTo}
             onOpenResearch={() => navigate({ section: "risk" })}
+            isReadOnly={appMode.isReadOnly}
+            activeAssessmentSupported={appMode.activeAssessmentSupported}
+            devices={devices.data}
           />
         ) : null}
 
@@ -422,6 +433,7 @@ export default function App() {
         findings={findings.data ?? []}
         open={deviceDrawerOpen}
         onClose={() => setDeviceDrawerOpen(false)}
+        isReadOnly={appMode.isReadOnly}
       />
 
       <FindingDetailsDrawer

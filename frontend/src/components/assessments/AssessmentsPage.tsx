@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { AssessmentSummary, EnvironmentPosture } from "../../api/types";
+import type { AssessmentSummary, Device, EnvironmentPosture } from "../../api/types";
 import { formatNumber } from "./detailFormat";
 import { severityTone } from "../../lib/format";
 import { selectLatestAssessment } from "../../lib/securityHome";
@@ -26,6 +26,9 @@ interface AssessmentsPageProps {
   initialComparison?: ReassessmentPair;
   onScrollTo?: (anchor: NavAnchor) => void;
   onOpenResearch?: () => void;
+  isReadOnly?: boolean;
+  activeAssessmentSupported?: boolean;
+  devices?: Device[] | null;
 }
 
 type AssessmentView = "history" | "compare";
@@ -47,6 +50,9 @@ export function AssessmentsPage({
   initialComparison,
   onScrollTo,
   onOpenResearch,
+  isReadOnly = false,
+  activeAssessmentSupported = true,
+  devices = null,
 }: AssessmentsPageProps) {
   const [view, setView] = useState<AssessmentView>(
     initialComparison ? "compare" : "history",
@@ -134,6 +140,23 @@ export function AssessmentsPage({
         hidden={view !== "history"}
         className="space-y-8"
       >
+        {/* Mode Posture Banner for Cloud Read-Only Mode */}
+        {isReadOnly ? (
+          <div className="rounded-2xl border border-sky-500/25 bg-sky-500/[0.06] p-4 text-sm text-[var(--text)] flex items-start gap-3.5">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-400 text-xs font-bold">
+              i
+            </span>
+            <div className="space-y-1">
+              <p className="font-semibold text-sky-300">
+                Cloud Read-Only Monitoring Mode
+              </p>
+              <p className="text-xs text-[var(--muted)] leading-relaxed">
+                This public dashboard visualizes live IoT device telemetry and past vulnerability assessment records stored in Neon PostgreSQL. Active network assessment probes are physically air-gapped and restricted to the local cybersecurity laboratory.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
         {/* Section A: Page Header */}
         <section className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-white/[0.06] pb-5">
           <div>
@@ -155,13 +178,15 @@ export function AssessmentsPage({
                 View Latest Assessment
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={() => setShowCheckForm((prev) => !prev)}
-              className="btn-soft inline-flex min-h-11 items-center rounded-full border border-[var(--accent)]/50 bg-[var(--accent-soft)] px-5 text-sm font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/20"
-            >
-              {showCheckForm ? "Hide Check Form" : "Run Security Assessment"}
-            </button>
+            {!isReadOnly && activeAssessmentSupported ? (
+              <button
+                type="button"
+                onClick={() => setShowCheckForm((prev) => !prev)}
+                className="btn-soft inline-flex min-h-11 items-center rounded-full border border-[var(--accent)]/50 bg-[var(--accent-soft)] px-5 text-sm font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/20"
+              >
+                {showCheckForm ? "Hide Check Form" : "Run Security Assessment"}
+              </button>
+            ) : null}
           </div>
         </section>
 
@@ -216,31 +241,41 @@ export function AssessmentsPage({
           </div>
         </section>
 
-        {/* Section C: Your IoT Lab Assets */}
-        <LabAssetsSection />
+        {/* Section C: Lab Assets */}
+        <LabAssetsSection isReadOnly={isReadOnly} devices={devices} />
 
-        {/* New Security Check Form Anchor & Form — collapsible */}
+        {/* Security Check Form Anchor & Form */}
         <div id="new-security-check" className="scroll-mt-24">
-          <details
-            open={showCheckForm}
-            onToggle={(e) => setShowCheckForm(e.currentTarget.open)}
-            className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 transition-colors"
-          >
-            <summary className="cursor-pointer text-sm font-semibold text-[var(--accent)] hover:underline list-none flex items-center justify-between">
-              <span>Run New Security Assessment</span>
-              <span className="text-xs text-[var(--muted)]">{showCheckForm ? "▲ Click to collapse" : "▼ Click to expand"}</span>
-            </summary>
-            <div className="mt-4">
-              <NewAssessmentForm
-                initialTarget={lastTarget}
-                onCreated={(assessment) => {
-                  onSelectAssessment(assessment.id);
-                  onRefresh();
-                  setShowCheckForm(false);
-                }}
-              />
-            </div>
-          </details>
+          {isReadOnly || !activeAssessmentSupported ? (
+            <NewAssessmentForm
+              isReadOnly={isReadOnly}
+              activeAssessmentSupported={activeAssessmentSupported}
+              onCreated={() => {}}
+            />
+          ) : (
+            <details
+              open={showCheckForm}
+              onToggle={(e) => setShowCheckForm(e.currentTarget.open)}
+              className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 transition-colors"
+            >
+              <summary className="cursor-pointer text-sm font-semibold text-[var(--accent)] hover:underline list-none flex items-center justify-between">
+                <span>Run New Security Assessment</span>
+                <span className="text-xs text-[var(--muted)]">{showCheckForm ? "▲ Click to collapse" : "▼ Click to expand"}</span>
+              </summary>
+              <div className="mt-4">
+                <NewAssessmentForm
+                  initialTarget={lastTarget}
+                  isReadOnly={isReadOnly}
+                  activeAssessmentSupported={activeAssessmentSupported}
+                  onCreated={(assessment) => {
+                    onSelectAssessment(assessment.id);
+                    onRefresh();
+                    setShowCheckForm(false);
+                  }}
+                />
+              </div>
+            </details>
+          )}
         </div>
 
         {/* Section D: Assessment History */}
@@ -272,7 +307,7 @@ export function AssessmentsPage({
           ) : error ? (
             <ErrorState message={error} onRetry={onRefresh} />
           ) : !assessments?.length ? (
-            <EmptyState message="No security checks have been run yet. Use the form above to start one." />
+            <EmptyState message="No security checks have been run yet." />
           ) : (
             <AssessmentList
               assessments={assessments}
@@ -299,6 +334,7 @@ export function AssessmentsPage({
               onOpenAssessment={onSelectAssessment}
               onOpenComparison={openComparison}
               onOpenResearch={onOpenResearch}
+              isReadOnly={isReadOnly}
             />
           </div>
         ) : null}

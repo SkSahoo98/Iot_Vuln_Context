@@ -11,6 +11,7 @@ type Props = {
   onRetry: () => void;
   findings: Finding[];
   onSelect: (device: Device) => void;
+  isReadOnly?: boolean;
 };
 
 export function DevicesPage({
@@ -20,6 +21,7 @@ export function DevicesPage({
   onRetry,
   findings,
   onSelect,
+  isReadOnly = false,
 }: Props) {
   if (loading && !devices) return <LoadingState />;
   if (error && !devices) return <ErrorState message={error} onRetry={onRetry} />;
@@ -29,14 +31,22 @@ export function DevicesPage({
 
   return (
     <div className="space-y-4 animate-fade-in">
-      <p className="text-sm text-[var(--muted)]">
-        Select a device to view details. Latest telemetry shows the most recent
-        recorded sensor_data values when available.
-      </p>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-[var(--muted)]">
+          Select a device to view details. Latest telemetry shows the most recent
+          recorded sensor_data values when available.
+        </p>
+        {isReadOnly ? (
+          <span className="mono text-xs text-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1 rounded-full border border-[var(--accent)]/30 self-start sm:self-auto">
+            Cloud Monitoring Mode
+          </span>
+        ) : null}
+      </div>
       <DeviceList
         devices={devices}
         findingsCount={findings.length}
         onSelect={onSelect}
+        isReadOnly={isReadOnly}
       />
     </div>
   );

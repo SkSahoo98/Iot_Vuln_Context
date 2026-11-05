@@ -6,6 +6,7 @@ type Props = {
   devices: Device[];
   findingsCount: number;
   onSelect: (device: Device) => void;
+  isReadOnly?: boolean;
 };
 
 function statusTone(
@@ -17,7 +18,12 @@ function statusTone(
   return "neutral";
 }
 
-export function DeviceList({ devices, findingsCount, onSelect }: Props) {
+export function DeviceList({
+  devices,
+  findingsCount,
+  onSelect,
+  isReadOnly = false,
+}: Props) {
   return (
     <div className="surface-panel overflow-x-auto rounded-2xl">
       <table className="min-w-full text-left text-sm">
@@ -26,6 +32,7 @@ export function DeviceList({ devices, findingsCount, onSelect }: Props) {
             <th className="px-4 py-3.5 text-[11px] font-medium tracking-[0.1em] uppercase">Device</th>
             <th className="px-4 py-3.5 text-[11px] font-medium tracking-[0.1em] uppercase">Type</th>
             <th className="px-4 py-3.5 text-[11px] font-medium tracking-[0.1em] uppercase">Status</th>
+            <th className="px-4 py-3.5 text-[11px] font-medium tracking-[0.1em] uppercase">Assessment</th>
             <th className="px-4 py-3.5 text-[11px] font-medium tracking-[0.1em] uppercase">IP</th>
             <th className="px-4 py-3.5 text-[11px] font-medium tracking-[0.1em] uppercase">Firmware</th>
             <th className="px-4 py-3.5 text-[11px] font-medium tracking-[0.1em] uppercase">Latest Telemetry</th>
@@ -36,6 +43,27 @@ export function DeviceList({ devices, findingsCount, onSelect }: Props) {
           {devices.map((device) => {
             const telemetry = formatTelemetrySummary(device.latest_telemetry);
             const status = (device.status || "UNKNOWN").toUpperCase();
+
+            const authLabel = isReadOnly
+              ? device.is_authorized
+                ? "Authorized"
+                : status === "ONLINE"
+                  ? "Monitoring Only"
+                  : "Restricted"
+              : device.is_authorized
+                ? "Authorized"
+                : "Restricted";
+
+            const authTone = device.is_authorized
+              ? "ok"
+              : isReadOnly && status === "ONLINE"
+                ? "neutral"
+                : "warn";
+
+            const displayIp = isReadOnly
+              ? "Private LAN"
+              : displayOrNotRecorded(device.ip_address);
+
             return (
               <tr
                 key={device.id}
@@ -55,8 +83,11 @@ export function DeviceList({ devices, findingsCount, onSelect }: Props) {
                 <td className="px-4 py-3">
                   <StatusBadge label={status} tone={statusTone(status)} />
                 </td>
+                <td className="px-4 py-3">
+                  <StatusBadge label={authLabel} tone={authTone} />
+                </td>
                 <td className="px-4 py-3 mono text-[var(--muted)]">
-                  {displayOrNotRecorded(device.ip_address)}
+                  {displayIp}
                 </td>
                 <td className="px-4 py-3 mono">
                   {displayOrNotRecorded(device.firmware_version)}

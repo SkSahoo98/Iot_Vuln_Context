@@ -22,6 +22,7 @@ type ViewProps = {
   onConfirm: () => void;
   onDismiss: () => void;
   onOpenAssessment?: (assessmentId: string) => void;
+  isReadOnly?: boolean;
 };
 
 function Notice({
@@ -98,6 +99,7 @@ export function ReassessmentPanelView({
   onConfirm,
   onDismiss,
   onOpenAssessment,
+  isReadOnly = false,
 }: ViewProps) {
   if (!isReassessable(original)) return null;
 
@@ -119,18 +121,30 @@ export function ReassessmentPanelView({
           <div className="min-w-0">
             <p className="text-sm font-medium text-[var(--text)]">Re-assessment</p>
             <p className="mt-0.5 text-xs text-[var(--muted)]">
-              Run a new assessment of{" "}
-              <span className="mono text-[var(--text)]">{original.target}</span> and
-              open it in the comparison view with this assessment as BEFORE.
+              {isReadOnly ? (
+                "Active re-assessments are disabled in Cloud Read-Only Mode. Run assessments via the local laboratory environment."
+              ) : (
+                <>
+                  Run a new assessment of{" "}
+                  <span className="mono text-[var(--text)]">{original.target}</span> and
+                  open it in the comparison view with this assessment as BEFORE.
+                </>
+              )}
             </p>
           </div>
-          <button type="button" onClick={onRequest} className={`${primaryButton} shrink-0`}>
-            Re-assess this target
-          </button>
+          {isReadOnly ? (
+            <span className="mono rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-xs text-[var(--muted)] shrink-0">
+              Local Lab Only
+            </span>
+          ) : (
+            <button type="button" onClick={onRequest} className={`${primaryButton} shrink-0`}>
+              Re-assess this target
+            </button>
+          )}
         </div>
       ) : null}
 
-      {state.phase === "confirming" ? (
+      {!isReadOnly && state.phase === "confirming" ? (
         <div role="alertdialog" aria-labelledby="reassess-confirm-title" className="space-y-3">
           <p id="reassess-confirm-title" className="text-base font-semibold text-[var(--text)]">
             Re-assess <span className="mono">{original.target}</span>?
@@ -252,6 +266,7 @@ type PanelProps = {
   run?: (target: string) => Promise<AssessmentDetail>;
   /** Each new value opens the confirmation step; it never starts a check. */
   requestToken?: number;
+  isReadOnly?: boolean;
 };
 
 export function ReassessmentPanel({
@@ -261,6 +276,7 @@ export function ReassessmentPanel({
   onOpenAssessment,
   run = createAssessment,
   requestToken = 0,
+  isReadOnly = false,
 }: PanelProps) {
   const callbacks = useRef({ onCreated, onComplete });
   callbacks.current = { onCreated, onComplete };
@@ -280,18 +296,20 @@ export function ReassessmentPanel({
   );
 
   useEffect(() => {
+    if (isReadOnly) return;
     if (requestToken > 0) flow.request();
-  }, [flow, requestToken]);
+  }, [flow, requestToken, isReadOnly]);
 
   return (
     <ReassessmentPanelView
       original={assessment}
       state={state}
-      onRequest={flow.request}
+      onRequest={isReadOnly ? () => {} : flow.request}
       onCancel={flow.cancel}
       onConfirm={() => void flow.confirm()}
       onDismiss={flow.dismiss}
       onOpenAssessment={onOpenAssessment}
+      isReadOnly={isReadOnly}
     />
   );
 }

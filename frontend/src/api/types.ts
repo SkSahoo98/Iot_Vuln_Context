@@ -1,3 +1,11 @@
+export type BackendHealth = {
+  status: string;
+  service: string;
+  environment?: string;
+  read_only_mode?: boolean;
+  active_assessment_supported?: boolean;
+};
+
 export type DeviceTelemetry = {
   temperature: number;
   humidity: number;

@@ -1,4 +1,10 @@
 import { getLabAssets, type AssetIdentity } from "../../lib/assets";
+import type { Device } from "../../api/types";
+
+interface LabAssetsSectionProps {
+  isReadOnly?: boolean;
+  devices?: Device[] | null;
+}
 
 function getAssetIcon(category: AssetIdentity["category"], assetType: string) {
   if (category === "ENVIRONMENT") {
@@ -58,23 +64,37 @@ function getAssetIcon(category: AssetIdentity["category"], assetType: string) {
   );
 }
 
-export function LabAssetsSection() {
-  const assets = getLabAssets();
+export function LabAssetsSection({ isReadOnly = false, devices = null }: LabAssetsSectionProps) {
+  const assets = getLabAssets({ isReadOnly, devices });
+
+  const headingTitle = isReadOnly ? "Monitored IoT Assets" : "Your IoT Lab Assets";
+  const headingDesc = isReadOnly
+    ? "These IoT devices are connected to the monitoring platform and provide live telemetry. Active vulnerability assessments are restricted to the local laboratory environment."
+    : "The physical devices and infrastructure components configured in this cybersecurity lab.";
 
   return (
     <section className="space-y-3">
       <div>
         <h2 className="text-base font-semibold text-[var(--text)]">
-          Your IoT Lab Assets
+          {headingTitle}
         </h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          The physical devices and infrastructure components configured in this cybersecurity lab.
+        <p className="mt-1 text-sm text-[var(--muted)] max-w-3xl">
+          {headingDesc}
         </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {assets.map((asset) => {
           const isEnv = asset.category === "ENVIRONMENT";
+
+          const badgeClasses = asset.isAuthorized
+            ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-400"
+            : asset.statusLabel === "Telemetry Active"
+              ? "border-[var(--accent)]/30 bg-[var(--accent)]/15 text-[var(--accent)]"
+              : asset.statusLabel === "Assessment Restricted"
+                ? "border-amber-500/30 bg-amber-500/15 text-amber-300"
+                : "border-white/10 bg-white/[0.06] text-[var(--muted)]";
+
           return (
             <div
               key={asset.id}
@@ -108,6 +128,16 @@ export function LabAssetsSection() {
                   </p>
                 </div>
 
+                {asset.statusLabel ? (
+                  <div>
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${badgeClasses}`}
+                    >
+                      {asset.statusLabel}
+                    </span>
+                  </div>
+                ) : null}
+
                 <p className="text-xs leading-relaxed text-[var(--muted)]">
                   {asset.description}
                 </p>
@@ -124,4 +154,3 @@ export function LabAssetsSection() {
     </section>
   );
 }
-

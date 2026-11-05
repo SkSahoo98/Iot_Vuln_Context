@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { NavRequest } from "../../lib/navigation";
 import type { AssessmentSummary, EnvironmentPosture } from "../../api/types";
 import { formatGeneratedAt, severityTone } from "../../lib/format";
 import { pluralize, type HomeState, type IssueSummary } from "../../lib/securityHome";
@@ -21,6 +22,8 @@ type Props = {
   deviceContext: DeviceContext | null;
   onCheckSecurity: (assessmentId: string | null) => void;
   onShowDetails: (assessmentId: string) => void;
+  isReadOnly?: boolean;
+  onNavigate?: (request: NavRequest) => void;
 };
 
 const HEADLINE_TONE: Record<ReturnType<typeof severityTone>, string> = {
@@ -447,8 +450,59 @@ function ActionsSection({
   state,
   onCheckSecurity,
   onShowDetails,
-}: Pick<Props, "state" | "onCheckSecurity" | "onShowDetails">) {
+  isReadOnly = false,
+  onNavigate,
+}: Pick<Props, "state" | "onCheckSecurity" | "onShowDetails" | "isReadOnly" | "onNavigate">) {
   const latestId = state.kind === "empty" ? null : state.latest.id;
+
+  if (isReadOnly) {
+    return (
+      <section aria-labelledby="security-actions-heading" className="space-y-3">
+        <h2 id="security-actions-heading" className="font-display text-base font-semibold">
+          What you can explore
+        </h2>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <button
+            type="button"
+            onClick={() => onCheckSecurity(latestId)}
+            className={primaryButton}
+          >
+            View Security History
+          </button>
+          {onNavigate ? (
+            <button
+              type="button"
+              onClick={() => onNavigate({ section: "devices" })}
+              className={secondaryButton}
+            >
+              View IoT Devices
+            </button>
+          ) : null}
+          {latestId ? (
+            <button
+              type="button"
+              onClick={() => onShowDetails(latestId)}
+              className={secondaryButton}
+            >
+              Show technical details
+            </button>
+          ) : null}
+          {onNavigate ? (
+            <button
+              type="button"
+              onClick={() => onNavigate({ section: "assistant" })}
+              className={secondaryButton}
+            >
+              Ask AI Assistant
+            </button>
+          ) : null}
+        </div>
+        <p className="text-xs text-[var(--muted)]">
+          Cloud Read-Only Mode: Live telemetry is actively monitored. Active scans run only through the local laboratory environment.
+        </p>
+      </section>
+    );
+  }
   const primaryLabel =
     state.kind === "empty"
       ? "Check security"
@@ -494,6 +548,8 @@ export function SecurityHomeView({
   deviceContext,
   onCheckSecurity,
   onShowDetails,
+  isReadOnly = false,
+  onNavigate,
 }: Props) {
   const latest = state.kind === "empty" ? null : state.latest;
   const posture = (latest?.metadata?.posture ?? null) as EnvironmentPosture | null;
@@ -508,7 +564,7 @@ export function SecurityHomeView({
       <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 text-xs text-[var(--muted)]">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-semibold text-[var(--text)]">Authorized Targets:</span>
+            <span className="font-semibold text-[var(--text)]">{isReadOnly ? "Monitored Targets:" : "Authorized Targets:"}</span>
             {posture ? (
               <>
                 <span className="mono">
@@ -552,6 +608,8 @@ export function SecurityHomeView({
         state={state}
         onCheckSecurity={onCheckSecurity}
         onShowDetails={onShowDetails}
+        isReadOnly={isReadOnly}
+        onNavigate={onNavigate}
       />
       {deviceContext && deviceContext.total > 0 ? (
         <p className="border-t border-white/[0.06] pt-4 text-xs text-[var(--muted)]">

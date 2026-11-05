@@ -20,6 +20,7 @@ from app.schemas.api import (
     ExperimentDetailOut,
     ExperimentSummaryOut,
     FindingOut,
+    HealthOut,
     RiskSummaryOut,
 )
 from app.schemas.assistant import AssistantExplainRequest, AssistantExplainResponse
@@ -57,9 +58,20 @@ from app.services.remediation_service import (
 router = APIRouter(prefix="/api/v1")
 
 
-@router.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": "iot-security-framework"}
+@router.get("/health", response_model=HealthOut)
+def health(settings: Settings = Depends(get_settings)) -> HealthOut:
+    active_assessment_supported = (
+        not settings.read_only_mode
+        and settings.environment.lower() != "production"
+        and bool(settings.assessment_allowed_targets and settings.assessment_allowed_targets.strip())
+    )
+    return HealthOut(
+        status="ok",
+        service="iot-security-framework",
+        environment=settings.environment,
+        read_only_mode=settings.read_only_mode,
+        active_assessment_supported=active_assessment_supported,
+    )
 
 
 @router.get("/devices", response_model=list[DeviceOut])

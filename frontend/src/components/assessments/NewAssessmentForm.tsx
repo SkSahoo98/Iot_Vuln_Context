@@ -7,15 +7,56 @@ interface NewAssessmentFormProps {
   onCreated: (assessment: AssessmentDetail) => void;
   /** Prefills the target field; the backend still enforces its allowlist. */
   initialTarget?: string;
+  isReadOnly?: boolean;
+  activeAssessmentSupported?: boolean;
 }
 
-export function NewAssessmentForm({ onCreated, initialTarget }: NewAssessmentFormProps) {
+export function NewAssessmentForm({
+  onCreated,
+  initialTarget,
+  isReadOnly = false,
+  activeAssessmentSupported = true,
+}: NewAssessmentFormProps) {
   const [target, setTarget] = useState(initialTarget ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [submittingMode, setSubmittingMode] = useState<"single" | "environment" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AssessmentDetail | null>(null);
   const submittingRef = useRef(false);
+
+  // In production / read-only mode, active scan submission controls are completely suppressed.
+  if (isReadOnly || !activeAssessmentSupported) {
+    return (
+      <section className="surface-panel space-y-3 rounded-2xl border border-white/[0.08] p-5 bg-white/[0.02]">
+        <div className="flex items-start gap-3.5">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-base font-semibold text-[var(--text)]">
+              Cloud Read-Only Monitoring Mode
+            </h3>
+            <p className="text-sm text-[var(--muted)] leading-relaxed max-w-2xl">
+              This deployment provides live IoT monitoring, security posture information and historical assessment results. Active vulnerability assessments are available through the authorized local laboratory environment.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   const trimmedTarget = target.trim();
 
@@ -92,7 +133,7 @@ export function NewAssessmentForm({ onCreated, initialTarget }: NewAssessmentFor
               Authorized IoT Environment
             </h3>
             <p className="mt-0.5 text-xs text-[var(--muted)]">
-              Assesses all explicitly authorized IoT devices (ESP32-01: 10.32.252.105, ESP32-02: 10.32.252.57) and infrastructure (MQTT Broker: 10.32.252.85) independently and compiles the overall security posture.
+              Assesses all explicitly authorized IoT devices and infrastructure independently and compiles the overall security posture.
             </p>
           </div>
           <button
@@ -159,47 +200,33 @@ export function NewAssessmentForm({ onCreated, initialTarget }: NewAssessmentFor
               aria-hidden
             />
           ) : null}
-          {submitting && submittingMode === "single" ? "Running assessment..." : "Run Assessment"}
+          {submitting && submittingMode === "single"
+            ? "Assessing..."
+            : "Run Assessment"}
         </button>
       </form>
 
-      <div aria-live="polite">
-        {submitting ? (
-          <p className="text-sm text-[var(--muted)]">
-            {submittingMode === "environment"
-              ? "Running environment assessment against all authorized IoT devices. This can take several seconds."
-              : (
-                <>
-                  Running assessment against{" "}
-                  <span className="mono text-[var(--text)]">{trimmedTarget}</span>.
-                  This can take several seconds.
-                </>
-              )}
+      {error ? (
+        <ErrorState message={error} onRetry={() => setError(null)} />
+      ) : null}
+
+      {result ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 text-sm"
+        >
+          <p className="font-semibold text-[var(--text)]">
+            {completed ? "Assessment complete" : "Assessment finished"}
           </p>
-        ) : null}
-
-        {error ? <ErrorState message={error} /> : null}
-
-        {result && !submitting ? (
-          <div
-            className={`rounded-xl border px-4 py-3 text-sm ${
-              completed
-                ? "border-[var(--ok)]/35 bg-[var(--ok)]/10 text-[var(--ok)]"
-                : "border-[var(--warn)]/35 bg-[var(--warn)]/10 text-[var(--warn)]"
-            }`}
-          >
-            <p className="font-medium">
-              {completed
-                ? "Assessment completed"
-                : `Assessment created with status ${result.status}`}{" "}
-              for <span className="mono">{result.target}</span>.
-            </p>
-            {result.error_summary ? (
-              <p className="mt-1 text-[var(--muted)]">{result.error_summary}</p>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+          <p className="mono mt-1 text-xs text-[var(--muted)]">
+            ID: {result.id} · Target: {result.target}
+          </p>
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            The assessment is saved in the assessment history below.
+          </p>
+        </div>
+      ) : null}
     </section>
   );
 }

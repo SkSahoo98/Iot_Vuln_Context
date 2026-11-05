@@ -1,5 +1,6 @@
 import { apiGet } from "./client";
 import type {
+  BackendHealth,
   Device,
   ExperimentDetail,
   ExperimentSummary,
@@ -9,7 +10,7 @@ import type {
 } from "./types";
 
 export const fetchHealth = () =>
-  apiGet<{ status: string; service: string }>("/api/v1/health");
+  apiGet<BackendHealth>("/api/v1/health");
 
 export const fetchDevices = () => apiGet<Device[]>("/api/v1/devices");
 

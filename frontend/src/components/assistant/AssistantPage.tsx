@@ -530,7 +530,9 @@ function WorkflowActions({
   onNavigate,
   onGuidedFix,
   onNotYet,
+  isReadOnly = false,
 }: {
+  isReadOnly?: boolean;
   actions: readonly AssistantActionButton[];
   busy: boolean;
   running: boolean;
@@ -541,7 +543,10 @@ function WorkflowActions({
   onNotYet?: () => void;
 }) {
   const shown = actions.filter(
-    (action) => (action.id !== "guided-fix" || (onGuidedFix && action.checkId)) && (action.id !== "not-yet" || onNotYet),
+    (action) =>
+      (action.id !== "guided-fix" || (onGuidedFix && action.checkId)) &&
+      (action.id !== "not-yet" || onNotYet) &&
+      (!isReadOnly || (action.id !== "run-check" && action.id !== "run-verification" && action.id !== "open-check-form")),
   );
   return (
     <div className="mt-2 flex flex-wrap gap-2">
@@ -742,19 +747,24 @@ function AssistantActions({
   context,
   busy,
   request,
+  isReadOnly = false,
 }: {
   context: AssistantContext | null;
   busy: boolean;
   /** The view's single request entry point, shared with the composer. */
   request: (text: string, source: "composer" | "shortcut") => void;
+  isReadOnly?: boolean;
 }) {
+  const groups = isReadOnly
+    ? SHORTCUT_GROUPS.map((group) => group.filter((id) => id !== "check" && id !== "verify")).filter((g) => g.length > 0)
+    : SHORTCUT_GROUPS;
   return (
     <section aria-labelledby="assistant-actions" className="surface-panel min-w-0 rounded-2xl p-3">
       <h2 id="assistant-actions" className={`${SIDEBAR_HEADING} px-1`}>
         What would you like to do?
       </h2>
       <div className="mt-2 space-y-2">
-        {SHORTCUT_GROUPS.map((group) => (
+        {groups.map((group) => (
           <ul key={group.join("|")} className="space-y-1">
             {group.map((id) => {
               const shortcut = shortcutById(id);
@@ -825,6 +835,7 @@ type ViewProps = {
   onNotYet?: () => void;
   onWorkflowNavigate?: (id: NavigationActionId) => void;
   now?: number;
+  isReadOnly?: boolean;
 };
 
 export function AssistantView({
@@ -842,6 +853,7 @@ export function AssistantView({
   onNotYet,
   onWorkflowNavigate,
   now,
+  isReadOnly = false,
 }: ViewProps) {
   const lastAssistantId = [...messages].reverse().find((message) => message.role === "assistant")?.id;
   const latestAssessmentId = context?.latestAssessment?.id ?? null;
@@ -983,6 +995,7 @@ export function AssistantView({
                     onNavigate={onWorkflowNavigate}
                     onGuidedFix={onGuidedFix}
                     onNotYet={onNotYet}
+                    isReadOnly={isReadOnly}
                   />
                 ) : null}
                 {message.suggestions?.length ? (
@@ -1065,7 +1078,7 @@ export function AssistantView({
         className="flex min-h-0 min-w-0 flex-col gap-3 lg:overflow-y-auto"
       >
         <SecurityStatusCard context={context} loadFailed={assessmentsError !== null} now={now} />
-        <AssistantActions context={context} busy={busy} request={request} />
+        <AssistantActions context={context} busy={busy} request={request} isReadOnly={isReadOnly} />
       </aside>
     </div>
   );
@@ -1085,6 +1098,7 @@ type Props = {
   onWorkflowChange?: (patch: Partial<AssistantWorkflowState>) => void;
   onAssessmentCreated?: () => void;
   now?: number;
+  isReadOnly?: boolean;
 };
 
 export function AssistantPage({
@@ -1099,6 +1113,7 @@ export function AssistantPage({
   onWorkflowChange,
   onAssessmentCreated,
   now,
+  isReadOnly = false,
 }: Props) {
   const latest = assessments ? selectLatestAssessment(assessments) : null;
   const detailId = latest?.status === "COMPLETE" ? latest.id : null;
@@ -1125,8 +1140,8 @@ export function AssistantPage({
 
   const latestDetail = detailId && detail.data?.id === detailId ? detail.data : null;
   const [status, setStatus] = useState<string | null>(null);
-  const latestDeps = useRef({ context, latestDetail, onNavigate, onMessage, getWorkflow, onWorkflowChange, onAssessmentCreated });
-  latestDeps.current = { context, latestDetail, onNavigate, onMessage, getWorkflow, onWorkflowChange, onAssessmentCreated };
+  const latestDeps = useRef({ context, latestDetail, onNavigate, onMessage, getWorkflow, onWorkflowChange, onAssessmentCreated, isReadOnly });
+  latestDeps.current = { context, latestDetail, onNavigate, onMessage, getWorkflow, onWorkflowChange, onAssessmentCreated, isReadOnly };
   const conversation = useRef<AssistantConversation | null>(null);
   const hasWorkflow = Boolean(getWorkflow && onWorkflowChange);
 
@@ -1147,6 +1162,7 @@ export function AssistantPage({
       addMessage: (message) => latestDeps.current.onMessage(message),
       setStatus,
       explain: explainWithAssistant,
+      isReadOnly: latestDeps.current.isReadOnly,
       ...(workflowDeps ? { workflow: workflowDeps } : {}),
     });
     conversation.current = controller;
@@ -1202,6 +1218,7 @@ export function AssistantPage({
           }
         : {})}
       now={now}
+      isReadOnly={isReadOnly}
     />
   );
 }

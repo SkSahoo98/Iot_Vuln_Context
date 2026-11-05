@@ -31,7 +31,6 @@ export function useAsyncData<T>(
         }
       } catch (err) {
         if (!cancelled) {
-          setData(null);
           setError(err instanceof Error ? err.message : "Unexpected error");
         }
       } finally {

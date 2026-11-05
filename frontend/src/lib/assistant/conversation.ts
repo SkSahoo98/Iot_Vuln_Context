@@ -452,6 +452,7 @@ export type ConversationDeps = {
   wait?: (ms: number) => Promise<void>;
   now?: () => number;
   nextId?: () => string;
+  isReadOnly?: boolean;
 };
 
 export type WorkflowDeps = {
@@ -775,6 +776,13 @@ export function createAssistantConversation(deps: ConversationDeps): AssistantCo
 
     switch (intent.intent) {
       case "CHECK": {
+        if (deps.isReadOnly) {
+          addReply({
+            text: "Active vulnerability assessments are disabled in this cloud monitoring deployment. You can execute authorized security assessments through the local laboratory environment.",
+            intent: "CHECK",
+          });
+          return answered;
+        }
         if (workflow.running) {
           addReply({ text: RUNNING_REPLY, intent: "CHECK" });
           return answered;
@@ -791,6 +799,13 @@ export function createAssistantConversation(deps: ConversationDeps): AssistantCo
 
       case "VERIFY":
       case "FIXED": {
+        if (deps.isReadOnly) {
+          addReply({
+            text: "Active vulnerability assessments are disabled in this cloud monitoring deployment. You can execute authorized security assessments through the local laboratory environment.",
+            intent: intent.intent,
+          });
+          return answered;
+        }
         if (resolution.state !== "READY" || !baseline) {
           if (intent.intent === "VERIFY") return null;
           addReply({ text: needsCheckReply(intent), intent: "FIXED", suggestions: ["check"] });
@@ -960,6 +975,12 @@ export function createAssistantConversation(deps: ConversationDeps): AssistantCo
   async function runCheck(kind: WorkflowRunKind): Promise<void> {
     const flow = deps.workflow;
     if (!flow) return;
+    if (deps.isReadOnly) {
+      addReply({
+        text: "Active vulnerability assessments are disabled in this cloud monitoring deployment. You can execute authorized security assessments through the local laboratory environment.",
+      });
+      return;
+    }
     const label = kind === "VERIFY" ? WORKFLOW_ACTIONS.runVerification.label : WORKFLOW_ACTIONS.runCheck.label;
     if (flow.get().running || isReassessmentInFlight()) {
       addReply({ text: RUNNING_REPLY });

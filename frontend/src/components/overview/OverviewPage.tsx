@@ -3,6 +3,7 @@ import { fetchAssessment } from "../../api/assessments";
 import type { AssessmentSummary } from "../../api/types";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { securityHomeState, summarizeIssues } from "../../lib/securityHome";
+import type { NavRequest } from "../../lib/navigation";
 import { ErrorState } from "../common/ErrorState";
 import { LoadingState } from "../common/LoadingState";
 import {
@@ -18,9 +19,14 @@ type Props = {
   deviceContext: DeviceContext | null;
   onCheckSecurity: (assessmentId: string | null) => void;
   onShowDetails: (assessmentId: string) => void;
+  isReadOnly?: boolean;
+  onNavigate?: (request: NavRequest) => void;
 };
 
-type Actions = Pick<Props, "deviceContext" | "onCheckSecurity" | "onShowDetails">;
+type Actions = Pick<
+  Props,
+  "deviceContext" | "onCheckSecurity" | "onShowDetails" | "isReadOnly" | "onNavigate"
+>;
 
 function CompleteHome({
   latest,
@@ -36,7 +42,11 @@ function CompleteHome({
       : { status: "loading" };
 
   return (
-    <SecurityHomeView state={{ kind: "complete", latest }} issues={issues} {...actions} />
+    <SecurityHomeView
+      state={{ kind: "complete", latest }}
+      issues={issues}
+      {...actions}
+    />
   );
 }
 

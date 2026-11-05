@@ -15,6 +15,8 @@ type Props = {
   onOpenStatus: () => void;
   onRefresh: () => void;
   children: ReactNode;
+  isReadOnly?: boolean;
+  modeLabel?: string;
 };
 
 export function AppShell({
@@ -24,6 +26,8 @@ export function AppShell({
   onOpenStatus,
   onRefresh,
   children,
+  isReadOnly,
+  modeLabel,
 }: Props) {
   const meta = SECTION_META[section];
   /** The Assistant is a fixed-height workspace on desktop, so it gets more width and less bottom space. */
@@ -38,6 +42,8 @@ export function AppShell({
         onOpenStatus={onOpenStatus}
         onRefresh={onRefresh}
         wide={workspace}
+        isReadOnly={isReadOnly}
+        modeLabel={modeLabel}
       />
       <main
         className={`mx-auto px-4 pb-[calc(var(--dock-h)+2.75rem)] pt-5 ${

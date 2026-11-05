@@ -15,6 +15,7 @@ type Props = {
   onNavigate: (request: NavRequest) => void;
   onScrollTo: (anchor: NavAnchor) => void;
   onReassessmentCreated: (created: AssessmentDetail) => void;
+  isReadOnly?: boolean;
 };
 
 const TECHNICAL_ID = "security-technical";
@@ -28,12 +29,20 @@ export function SecurityPage({
   onNavigate,
   onScrollTo,
   onReassessmentCreated,
+  isReadOnly = false,
 }: Props) {
   const [technicalOpen, setTechnicalOpen] = useState(initialTechnicalOpen);
   const state = assessments ? securityHomeState(assessments) : null;
   const latestId = state && state.kind !== "empty" ? state.latest.id : null;
 
   function checkAgain(assessmentId: string | null) {
+    if (isReadOnly) {
+      onNavigate({
+        section: "history",
+        assessmentId: assessmentId ?? undefined,
+      });
+      return;
+    }
     if (assessmentId && state?.kind === "complete") {
       onNavigate({
         section: "history",
@@ -63,6 +72,8 @@ export function SecurityPage({
         deviceContext={deviceContext}
         onCheckSecurity={checkAgain}
         onShowDetails={showTechnicalDetails}
+        isReadOnly={isReadOnly}
+        onNavigate={onNavigate}
       />
 
       {latestId ? (
@@ -108,6 +119,7 @@ export function SecurityPage({
                 }
                 onOpenComparison={(pair) => onNavigate({ section: "history", comparison: pair })}
                 onOpenResearch={() => onNavigate({ section: "risk" })}
+                isReadOnly={isReadOnly}
               />
             ) : null}
           </div>

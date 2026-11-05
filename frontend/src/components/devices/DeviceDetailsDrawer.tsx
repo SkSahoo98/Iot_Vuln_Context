@@ -9,6 +9,7 @@ type Props = {
   findings: Finding[];
   open: boolean;
   onClose: () => void;
+  isReadOnly?: boolean;
 };
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -33,6 +34,7 @@ export function DeviceDetailsDrawer({
   findings,
   open,
   onClose,
+  isReadOnly = false,
 }: Props) {
   if (!device) return null;
 
@@ -41,6 +43,20 @@ export function DeviceDetailsDrawer({
   const status = (device.status || "UNKNOWN").toUpperCase();
   const statusTone =
     status === "ONLINE" ? "ok" : status === "OFFLINE" ? "danger" : "neutral";
+
+  const authLabel = isReadOnly
+    ? device.is_authorized
+      ? "Authorized for Assessment"
+      : status === "ONLINE"
+        ? "Monitoring Only (Cloud Restricted)"
+        : "Assessment Restricted"
+    : device.is_authorized
+      ? "Authorized for Assessment"
+      : "Assessment Restricted";
+
+  const displayIp = isReadOnly
+    ? "Private Laboratory LAN"
+    : displayOrNotRecorded(device.ip_address);
 
   return (
     <Drawer open={open} title={device.device_id} onClose={onClose}>
@@ -54,12 +70,9 @@ export function DeviceDetailsDrawer({
         <dl className="glass-inset rounded-2xl px-3.5">
           <InfoRow label="Device ID" value={device.device_id} />
           <InfoRow label="Type" value={device.device_type} />
+          <InfoRow label="IP Address" value={displayIp} />
           <InfoRow
-            label="IP"
-            value={displayOrNotRecorded(device.ip_address)}
-          />
-          <InfoRow
-            label="MAC"
+            label="MAC Address"
             value={displayOrNotRecorded(device.mac_address)}
           />
           <InfoRow
@@ -67,6 +80,7 @@ export function DeviceDetailsDrawer({
             value={displayOrNotRecorded(device.firmware_version)}
           />
           <InfoRow label="Status" value={status} />
+          <InfoRow label="Assessment" value={authLabel} />
         </dl>
       </section>
 
@@ -126,11 +140,14 @@ export function DeviceDetailsDrawer({
       </section>
 
       <section>
-        <SectionTitle>Security Context</SectionTitle>
+        <SectionTitle>Security & Assessment Context</SectionTitle>
         <div className="glass-inset rounded-2xl px-3.5 py-3">
           <p className="text-sm text-[var(--muted)]">
-            Device-specific context fields are not recorded on this endpoint.
-            IoT context used for risk scoring comes from the risk engine response.
+            {isReadOnly
+              ? "This device streams live telemetry to the cloud monitoring platform. Active vulnerability assessments are restricted to the local laboratory environment."
+              : device.is_authorized
+                ? "This device is explicitly authorized for security assessments and vulnerability probing in the local cybersecurity lab."
+                : "This device is not included in the current assessment target allowlist. Update ASSESSMENT_ALLOWED_TARGETS to enable scanning."}
           </p>
         </div>
       </section>
