@@ -164,6 +164,14 @@ function FindingCard({
             <span>{finding.category}</span>
             <span>•</span>
             <StatusBadge label={finding.status} tone="info" />
+            {finding.confidence !== null ? (
+              <>
+                <span>•</span>
+                <span className="mono font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                  Confidence: {formatConfidence(finding.confidence)}
+                </span>
+              </>
+            ) : null}
           </div>
         </div>
         <SeverityBadge severity={finding.severity} />

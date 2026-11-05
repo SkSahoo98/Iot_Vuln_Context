@@ -414,6 +414,18 @@ function AssessmentDetailBody({
         )}
       </DetailSection>
 
+      {/* Section D: Risk Snapshots and Factor Calculation */}
+      {data.risk_snapshots.length ? (
+        <DetailSection
+          id="assessment-risk-snapshots"
+          title="Risk Snapshots & Factor Calculation"
+          count={data.risk_snapshots.length}
+          description="Contextual risk snapshots and factor contributions recorded by the IoT-RISK-v1 engine."
+        >
+          <AssessmentRiskView snapshots={data.risk_snapshots} findings={data.findings} />
+        </DetailSection>
+      ) : null}
+
       {/* Section D: Before-and-After Comparison & Verification */}
       <DetailSection
         id="assessment-verification"

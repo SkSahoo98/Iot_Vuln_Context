@@ -39,7 +39,7 @@ const LEGACY_ALIASES: Record<string, AppSection> = {
 };
 
 export function sectionFromHash(hash: string): AppSection {
-  const name = hash.replace(/^#\/?/, "").trim().toLowerCase();
+  const name = hash.replace(/^#\/?/, "").split("?")[0].trim().toLowerCase();
   if ((PRIMARY_SECTIONS as readonly string[]).includes(name)) return name as AppSection;
   if ((SECONDARY_SECTIONS as readonly string[]).includes(name)) return name as AppSection;
   return LEGACY_ALIASES[name] ?? DEFAULT_SECTION;

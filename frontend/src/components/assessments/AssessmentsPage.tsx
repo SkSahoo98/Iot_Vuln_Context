@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AssessmentSummary, Device, EnvironmentPosture } from "../../api/types";
 import { formatNumber } from "./detailFormat";
 import { severityTone } from "../../lib/format";
@@ -68,6 +68,18 @@ export function AssessmentsPage({
     (a) => a.status === "COMPLETE",
   );
   const lastTarget = latestAssessment?.target;
+
+  useEffect(() => {
+    if (!selectedAssessmentId && assessments?.length) {
+      const demoOrLatest =
+        assessments.find((a) => a.id === "a921b260-f51d-4f16-9b9f-9acc11decc26") ??
+        latestComplete ??
+        latestAssessment;
+      if (demoOrLatest) {
+        onSelectAssessment(demoOrLatest.id);
+      }
+    }
+  }, [assessments, selectedAssessmentId, latestComplete, latestAssessment, onSelectAssessment]);
 
   // Deriving Section B overall summary from backend assessment posture / latest
   const posture = (latestComplete?.metadata as Record<string, unknown> | undefined)
@@ -176,6 +188,16 @@ export function AssessmentsPage({
                 className="btn-soft inline-flex min-h-11 items-center rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-[var(--text)] hover:border-white/20 hover:bg-white/[0.08]"
               >
                 View Latest Assessment
+              </button>
+            ) : null}
+            {assessments?.some((a) => a.id === "a921b260-f51d-4f16-9b9f-9acc11decc26") ? (
+              <button
+                type="button"
+                onClick={() => selectAssessment("a921b260-f51d-4f16-9b9f-9acc11decc26")}
+                className="btn-soft inline-flex min-h-11 items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-4 text-sm font-semibold text-amber-300 hover:bg-amber-500/20"
+              >
+                <span>⭐</span>
+                <span>Demo Assessment: MQTT Broker (7 Findings · Risk 70.5)</span>
               </button>
             ) : null}
             {!isReadOnly && activeAssessmentSupported ? (

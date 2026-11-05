@@ -177,7 +177,7 @@ export function AssessmentList({
   selectedAssessmentId,
   onSelect,
 }: AssessmentListProps) {
-  const [expandedBatches, setExpandedBatches] = useState<Record<string, boolean>>({});
+  const [expandedBatches, setExpandedBatches] = useState<Record<string, boolean>>({ '172b35d2-9aff-438d-b29f-b713bfce5f9c': true });
   const groups = groupAssessments(assessments);
 
   function toggleExpand(batchId: string, event: React.MouseEvent) {

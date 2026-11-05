@@ -78,7 +78,13 @@ export default function App() {
   const [findingDrawerOpen, setFindingDrawerOpen] = useState(false);
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<
     string | null
-  >(null);
+  >(() => {
+    if (typeof window === "undefined") return null;
+    const urlParams = new URLSearchParams(window.location.search);
+    const hashQuery = window.location.hash.includes("?") ? window.location.hash.split("?")[1] : "";
+    const hashParams = new URLSearchParams(hashQuery);
+    return urlParams.get("assessmentId") || hashParams.get("assessmentId") || hashParams.get("id") || null;
+  });
 
   const navigate = useCallback((request: NavRequest) => {
     if (request.assessmentId) setSelectedAssessmentId(request.assessmentId);
